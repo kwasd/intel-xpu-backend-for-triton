@@ -196,8 +196,113 @@ LogicalResult convertDot(TritonGPUToSPIRVTypeConverter *typeConverter,
 
   auto mmaType = getMmaType(op);
 
+  //  std::string libName = "libdevice";
+  //  std::string curPrint = "print_cur_float";
+  //  std::string accPrint = "print_acc_float";
+  //  std::string outPrint = "print_output_float";
+  //  std::string writeIndexPrint = "print_write_index";
+  //  appendOrGetFuncOp(rewriter, op, libName, writeIndexPrint,
+  //                    mlir::FunctionType::get(rewriter.getContext(), {i32_ty,
+  //                    i32_ty, i32_ty}, TypeRange()));
+
+  //  spirv::FuncOp func = spirv::appendOrGetFuncOp(loc, rewriter, "libdevice",
+  //  "llvm.genx.dpas",
+  //   mlir::FunctionType::get(rewriter.getContext(), {i32_ty, i32_ty, i32_ty},
+  //   TypeRange()),
+  //                                                  spirv::FunctionControl::Inline,attributes);
+  std::string simdFunc = "SIMDwrapper";
+
+  auto valueTy = i32_ty;
+  auto valSIMDTy = mlir::VectorType::get({(int64_t)16}, valueTy);
+  auto simdFunTy =
+      mlir::FunctionType::get(rewriter.getContext(), {valSIMDTy}, {valSIMDTy});
+  spirv::FuncOp wrapper;
+  {
+    // SIMD function
+    NamedAttrList attributes;
+    wrapper = spirv::appendOrGetFuncOp(loc, rewriter, "", simdFunc, simdFunTy,
+                                       spirv::FunctionControl::None);
+
+    wrapper->setAttr(spirv::SPIRVDialect::getAttributeName(
+                         spirv::Decoration::VectorComputeFunctionINTEL),
+                     UnitAttr::get(rewriter.getContext()));
+    wrapper->setAttr(spirv::SPIRVDialect::getAttributeName(
+                         spirv::Decoration::StackCallINTEL),
+                     UnitAttr::get(rewriter.getContext()));
+    wrapper->setAttr(spirv::SPIRVDialect::getAttributeName(
+                         spirv::Decoration::ReferencedIndirectlyINTEL),
+                     UnitAttr::get(rewriter.getContext()));
+    auto block = wrapper.addEntryBlock();
+
+    OpBuilder rewriter(block, block->begin());
+    //    rewriter.create<spirv::FunctionCallOp>(loc, TypeRange(),
+    //    "llvm.genx.dpas",
+    //                                          ValueRange{i32_val(0),
+    //                                          i32_val(0), i32_val(0)});
+    Value retVal = rewriter.create<spirv::UndefOp>(loc, valSIMDTy);
+
+    for (int i = 0; i < 16; i++)
+      retVal = insert_element(valSIMDTy, retVal, i32_val(0), i32_val(i));
+    rewriter.create<spirv::ReturnValueOp>(loc, TypeRange(), ValueRange{retVal});
+  }
+  auto funPtrTy =
+      spirv::PointerType::get(simdFunTy, spirv::StorageClass::CodeSectionINTEL);
+  spirv::AddressOfOp funValue =
+      rewriter.create<spirv::AddressOfOp>(loc, funPtrTy, simdFunc);
+
+  //  std::cout << "johnlu address of" << std::endl;
+  //  (*this)->print(llvm::outs());
+  //  llvm::outs().flush();
+  //  std::cout << std::endl;
+#if 0
+  auto symbolOp = SymbolTable::lookupNearestSymbolFrom(funValue->getParentOp(),
+                                     funValue.getVariableAttr());
+    if(symbolOp) {
+      std::cout << "start symbolTableOp" << std::endl;
+      symbolOp->print(llvm::outs());
+      llvm::outs().flush();
+      std::cout << std::endl;
+      std::cout << "end symbolTableOp" << std::endl;
+      auto funcOp = dyn_cast_or_null<spirv::FuncOp>(symbolOp);
+      std::cout << "start symbolOp type" << std::endl;
+      funcOp.getFunctionType().print(llvm::outs());
+      llvm::outs().flush();
+      std::cout << std::endl;
+      std::cout << "end symbolOp type" << std::endl;
+      std::cout << "start pointer type" << std::endl;
+      funValue->getResult(0).print(llvm::outs());
+//      funValue.getPointer().print(llvm::outs());
+      llvm::outs().flush();
+      std::cout << std::endl;
+      std::cout << "end pointer type" << std::endl;
+    }
+#endif
+
+  std::string intfSIMDFunc = "_Z33__regcall3____builtin_invoke_simd" + simdFunc;
+  auto simtToSIMDFunTy = mlir::FunctionType::get(
+      rewriter.getContext(), {funPtrTy, valueTy}, {valueTy});
+  {
+    // SIMT -> SIMD calling abi
+    NamedAttrList attributes;
+    attributes.set("libname",
+                   StringAttr::get(rewriter.getContext(), "libdevice"));
+    attributes.set("libpath", StringAttr::get(rewriter.getContext(), ""));
+    attributes.set(
+        "linkage_attributes",
+        ArrayAttr::get(rewriter.getContext(),
+                       {
+                           StringAttr::get(rewriter.getContext(), intfSIMDFunc),
+                           StringAttr::get(rewriter.getContext(), "Import"),
+                       }));
+    spirv::appendOrGetFuncOp(loc, rewriter, "", intfSIMDFunc, simtToSIMDFunTy,
+                             spirv::FunctionControl::Inline, attributes);
+  }
+
   auto callMma = [&](unsigned m, unsigned n, unsigned k) {
     unsigned colsPerThread = repN * 2;
+    rewriter.create<spirv::FunctionCallOp>(loc, TypeRange{valueTy},
+                                           intfSIMDFunc,
+                                           ValueRange{funValue, i32_val(0)});
     //    PTXBuilder builder;
     //    auto &mma = *builder.create(mmaInstrPtx.at(mmaType));
     //    // using =r for float32 works but leads to less readable ptx.

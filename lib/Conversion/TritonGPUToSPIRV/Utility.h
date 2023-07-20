@@ -192,13 +192,13 @@ T getLinearIndex(llvm::ArrayRef<T> multiDimIndex, llvm::ArrayRef<T> shape,
 
 namespace spirv {
 
-Value createConstantI32(Location loc, PatternRewriter &rewriter, int32_t v);
+Value createConstantI32(Location loc, OpBuilder &builder, int32_t v);
 
 /// Create a 32-bit float constant.
-Value createConstantF32(Location loc, PatternRewriter &rewriter, float v);
+Value createConstantF32(Location loc, OpBuilder &builder, float v);
 
 /// Create a 64-bit float constant.
-Value createConstantF64(Location loc, PatternRewriter &rewriter, float v);
+Value createConstantF64(Location loc, OpBuilder &builder, float v);
 
 /// Create an index type constant.
 Value createIndexConstant(OpBuilder &builder, Location loc,
@@ -327,11 +327,11 @@ Value convertFp32ToBf16(Location loc, ConversionPatternRewriter &rewriter,
 Value convertBf16ToFp32(Location loc, ConversionPatternRewriter &rewriter,
                         const Value &v, bool use_INTELConvertFToBF16Op = false);
 
-spirv::FuncOp appendOrGetFuncOp(Location loc,
-                                ConversionPatternRewriter &rewriter,
-                                StringRef libName, StringRef funcName,
-                                mlir::FunctionType funcType,
-                                const NamedAttrList &extraAttrs = {});
+spirv::FuncOp appendOrGetFuncOp(
+    Location loc, ConversionPatternRewriter &rewriter, StringRef libName,
+    StringRef funcName, mlir::FunctionType funcType,
+    spirv::FunctionControl linkage = spirv::FunctionControl::Inline,
+    const NamedAttrList &extraAttrs = {});
 } // namespace spirv
 } // namespace mlir
 

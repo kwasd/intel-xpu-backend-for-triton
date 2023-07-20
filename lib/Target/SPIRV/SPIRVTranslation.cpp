@@ -80,6 +80,8 @@ getInterfaceVariables(spirv::FuncOp funcOp,
   funcOp.walk([&](spirv::AddressOfOp addressOfOp) {
     auto var =
         module.lookupSymbol<spirv::GlobalVariableOp>(addressOfOp.getVariable());
+    if (!var)
+      return;
     // TODO: Per SPIR-V spec: "Before version 1.4, the interface’s
     // storage classes are limited to the Input and Output storage classes.
     // Starting with version 1.4, the interface’s storage classes are all
@@ -114,7 +116,7 @@ static bool linkExternLib(std::vector<uint32_t> &binary,
   ctx.SetMessageConsumer(print_msg_to_stderr);
 
   spvtools::LinkerOptions link_option;
-  link_option.SetAllowPartialLinkage(false);
+  link_option.SetAllowPartialLinkage(true);
   link_option.SetCreateLibrary(false);
 
   std::vector<std::vector<uint32_t>> libs{binary};
