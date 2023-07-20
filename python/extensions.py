@@ -6,7 +6,6 @@ import sys
 import warnings
 from typing import List
 
-import pybind11  # noqa: F401
 import setuptools
 import torch
 from setuptools.command.build_ext import build_ext
@@ -496,12 +495,8 @@ def include_paths() -> List[str]:
         # add oneAPI include directories
         paths += get_one_api_help().get_include_dirs()
     else:
-        infos = os.popen("pip show pybind11").read().split("\n")
-        for info in infos:
-            if "Location" in info:
-                pybind11_path = info[10:]
-
-        pybind11_path = os.path.join(pybind11_path, 'pybind11/include')
+        import pybind11
+        pybind11_path = pybind11.get_include()
         if not os.path.exists(pybind11_path):
             raise Exception("Didn't found pybind11 in conda site-packages, pls try pip install pybind11")
 
