@@ -10,6 +10,7 @@
 //
 #include "DotOpHelpers.h" // This cannot be removed so far. The utility defined marco has conflict with SPIRV header.
 #include "Utility.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/SPIRV/Transforms/SPIRVConversion.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "triton/Analysis/AxisInfo.h"
@@ -66,7 +67,7 @@ protected:
 
   // Convert input FuncOp to LLVMFuncOp by using the LLVMTypeConverter provided
   // to this legalization pattern.
-  spirv::FuncOp
+  LLVM::LLVMFuncOp
   convertFuncOpToSPIRVFuncOp(triton::FuncOp funcOp,
                              ConversionPatternRewriter &rewriter) const {
     // Convert the original function arguments. They are converted using the
@@ -112,9 +113,14 @@ protected:
       }
     }
 
-    auto spirvType = rewriter.getFunctionType(
-        result.getConvertedTypes(),
-        packedResultType ? TypeRange(packedResultType) : TypeRange());
+    auto spirvType = LLVM::LLVMFunctionType::get(
+        getContext(),
+        packedResultType ? packedResultType
+                         : LLVM::LLVMVoidType::get(getContext()),
+        result.getConvertedTypes(), false);
+    //    auto spirvType = rewriter.getFunctionType(
+    //        result.getConvertedTypes(),
+    //        packedResultType ? TypeRange(packedResultType) : TypeRange());
 
     // Propagate argument/result attributes to all converted arguments/result
     // obtained after converting a given original argument/result.
@@ -131,7 +137,7 @@ protected:
           rewriter.getNamedAttr(funcOp.getResAttrsAttrName(), newResAttrDicts));
     }
     if (ArrayAttr argAttrDicts = funcOp.getAllArgAttrs()) {
-      SmallVector<Attribute, 4> newArgAttrs(spirvType.getNumInputs());
+      SmallVector<Attribute, 4> newArgAttrs(spirvType.getNumParams());
       for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i) {
         auto mapping = result.getInputMapping(i);
         assert(mapping && "unexpected deletion of function argument");
@@ -150,7 +156,7 @@ protected:
 
     // Create an SPIRV function, use external linkage by default until MLIR
     // functions have linkage.
-    spirv::FunctionControl linkage = spirv::FunctionControl::None;
+    LLVM::Linkage linkage = LLVM::Linkage::External;
     if (funcOp->hasAttr("llvm.linkage")) {
       funcOp->emitError() << "Contains llvm.linkage attribute not in SPIRV";
       return nullptr;
@@ -191,9 +197,9 @@ protected:
 #endif
     }
 
-    auto newFuncOp = rewriter.create<spirv::FuncOp>(
-        funcOp.getLoc(), funcOp.getName(), spirvType, linkage, attributes);
-
+    auto newFuncOp = rewriter.create<LLVM::LLVMFuncOp>(
+        funcOp.getLoc(), funcOp.getName(), spirvType, linkage,
+        /*dsoLocal*/ false, LLVM::CConv::SPIR_KERNEL, attributes);
     rewriter.inlineRegionBefore(funcOp.getBody(), newFuncOp.getBody(),
                                 newFuncOp.end());
     if (failed(rewriter.convertRegionTypes(&newFuncOp.getBody(), *typeConverter,
@@ -738,7 +744,7 @@ private:
       rewriter.restoreInsertionPoint(*insertPt);
     } else {
       auto func =
-          rewriter.getInsertionPoint()->getParentOfType<spirv::FuncOp>();
+          rewriter.getInsertionPoint()->getParentOfType<LLVM::LLVMFuncOp>();
       rewriter.setInsertionPointToStart(&func.getBody().front());
     }
   }

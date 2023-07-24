@@ -15,7 +15,7 @@ add_mlir_conversion_library(TritonGPUToSPIRV
     TypeConverter.cpp
     Utility.cpp
     DotOpToSPIRV.cpp
-
+    TritonSPIRVToLLVM.cpp
 
     ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include/triton/Conversion/TritonGPUToSPIRV

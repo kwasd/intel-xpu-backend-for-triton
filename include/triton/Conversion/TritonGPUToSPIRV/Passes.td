@@ -18,7 +18,8 @@ def ConvertTritonGPUToSPIRV : Pass<"convert-triton-gpu-to-spriv", "mlir::ModuleO
                             "mlir::tensor::TensorDialect",
                             "mlir::triton::TritonDialect",
                             "mlir::triton::gpu::TritonGPUDialect",
-                            "mlir::spirv::SPIRVDialect"];
+                            "mlir::spirv::SPIRVDialect",
+                            "mlir::LLVM::LLVMDialect"];
 
     let options = [
         Option<"computeCapability", "compute-capability",

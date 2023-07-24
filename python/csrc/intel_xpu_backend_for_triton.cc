@@ -1,5 +1,6 @@
 
 #include "mlir/Dialect/Index/IR/IndexDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Support/FileUtilities.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
@@ -36,11 +37,11 @@ void init_triton_translation(py::module &m) {
         // initialize registry
         // note: we initialize llvm for undef
         mlir::DialectRegistry registry;
-        registry.insert<mlir::triton::TritonDialect,
-                        mlir::triton::gpu::TritonGPUDialect,
-                        mlir::math::MathDialect, mlir::arith::ArithDialect,
-                        mlir::index::IndexDialect, mlir::scf::SCFDialect,
-                        mlir::cf::ControlFlowDialect>();
+        registry.insert<
+            mlir::triton::TritonDialect, mlir::triton::gpu::TritonGPUDialect,
+            mlir::math::MathDialect, mlir::arith::ArithDialect,
+            mlir::index::IndexDialect, mlir::scf::SCFDialect,
+            mlir::cf::ControlFlowDialect, mlir::LLVM::LLVMDialect>();
         context.appendDialectRegistry(registry);
         context.loadAllAvailableDialects();
 
@@ -67,6 +68,7 @@ void init_triton_translation(py::module &m) {
 
   m.def("compile_spirv_to_spvbin",
         [](const std::string &spirvCode, int capability) -> py::object {
+          std::cout << "johnlu input assemble:\n" << spirvCode << std::endl;
           std::string spvbin;
           llvm::raw_string_ostream os(spvbin);
 

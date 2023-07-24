@@ -7,6 +7,7 @@
 #include "mlir/Conversion/GPUToSPIRV/GPUToSPIRV.h"
 #include "mlir/Conversion/MathToSPIRV/MathToSPIRV.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
+#include "mlir/Conversion/SPIRVToLLVM/SPIRVToLLVM.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/NVVMDialect.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
@@ -23,6 +24,7 @@
 #include "LoadStoreOpToSPIRV.h"
 #include "ReduceOpToSPIRV.h"
 #include "TritonGPUToSPIRV.h"
+#include "TritonSPIRVToLLVM.h"
 #include "TypeConverter.h"
 #include "ViewOpToSPIRV.h"
 
@@ -54,7 +56,7 @@ public:
   explicit TritonSPIRVFunctionConversionTarget(
       MLIRContext &ctx, SPIRVTypeConverter &typeConverter)
       : ConversionTarget(ctx) {
-    addLegalDialect<spirv::SPIRVDialect>();
+    addLegalDialect<LLVM::LLVMDialect>();
     addIllegalOp<mlir::func::FuncOp>();
     addLegalOp<mlir::UnrealizedConversionCastOp>();
   }
@@ -66,7 +68,7 @@ struct ReturnOpConversion : public OpConversionPattern<triton::ReturnOp> {
   LogicalResult
   matchAndRewrite(triton::ReturnOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto funcOp = op->getParentOfType<spirv::FuncOp>();
+    auto funcOp = op->getParentOfType<LLVM::LLVMFuncOp>();
     if (funcOp->hasAttr(spirv::getEntryPointABIAttrName())) {
       // A GPU kernel
       if (op.getNumOperands() > 0) {
@@ -126,7 +128,7 @@ struct ReturnOpConversion : public OpConversionPattern<triton::ReturnOp> {
 };
 
 struct FuncOpConversion : public FuncOpConversionBase {
-  FuncOpConversion(SPIRVTypeConverter &converter, MLIRContext *context,
+  FuncOpConversion(LLVMTypeConverter &converter, MLIRContext *context,
                    int numWarps, ModuleAllocation &allocation,
                    PatternBenefit benefit)
       : FuncOpConversionBase(converter, context, benefit),
@@ -203,7 +205,8 @@ struct FuncOpConversion : public FuncOpConversionBase {
     } else {
       // The noinline function control will be used by the SPIRV codegen to
       // prevent inlining.
-      newFuncOp.setFunctionControl(spirv::FunctionControl::DontInline);
+      newFuncOp.setPassthroughAttr(
+          ArrayAttr::get(ctx, rewriter.getStringAttr("noinline")));
       rewriter.eraseOp(amendedFuncOp);
     }
     // The call graph is updated by mapping the old function to the new one.
@@ -335,12 +338,121 @@ private:
   ModuleAllocation &allocation;
 };
 
+using ::mlir::triton::gpu::getTotalElemsPerThread;
+
+class SPIRVToLLVMTypeConverter : public LLVMTypeConverter {
+public:
+  using TypeConverter::convertType;
+
+  SPIRVToLLVMTypeConverter(MLIRContext *ctx, LowerToLLVMOptions &option,
+                           const DataLayoutAnalysis *analysis = nullptr)
+      : LLVMTypeConverter(ctx, option, analysis) {
+    addConversion([&](spirv::PointerType type) -> std::optional<Type> {
+      Type ty = convertType(type.getPointeeType());
+      uint32_t addressSpace = 0;
+      if (type.getStorageClass() == spirv::StorageClass::Workgroup)
+        addressSpace = 3;
+      if (type.getStorageClass() == spirv::StorageClass::CrossWorkgroup)
+        addressSpace = 1;
+
+      return LLVM::LLVMPointerType::get(&getContext(), ty, addressSpace);
+    });
+
+    addConversion([&](spirv::StructType type) -> std::optional<Type> {
+      auto types = type.getElementTypes();
+      SmallVector<Type> results(types.size());
+      for (unsigned i = 0; i < types.size(); ++i) {
+        results[i] = convertType(types[i]);
+      }
+      return LLVM::LLVMStructType::getLiteral(&getContext(), results);
+    });
+    addConversion([&](triton::PointerType type) -> llvm::Optional<Type> {
+      return convertTritonPointerType(type);
+    });
+    addConversion([&](RankedTensorType type) -> llvm::Optional<Type> {
+      return convertTritonTensorType(type);
+    });
+    addConversion([&](mlir::VectorType type) -> llvm::Optional<Type> {
+      // Recursively translate vector type
+      return mlir::VectorType::get(type.getShape(),
+                                   convertType(type.getElementType()));
+    });
+    // Internally store float8 as int8
+    addConversion([&](mlir::Float8E4M3FNType type) -> llvm::Optional<Type> {
+      llvm::report_fatal_error("SPIRV doesn't support fp8 type");
+      return IntegerType::get(type.getContext(), 8);
+    });
+    addConversion([&](mlir::Float8E5M2Type type) -> llvm::Optional<Type> {
+      llvm::report_fatal_error("SPIRV doesn't support fp8 type");
+      return IntegerType::get(type.getContext(), 8);
+    });
+    // Internally store bfloat16 as int16
+    addConversion([&](BFloat16Type type) -> llvm::Optional<Type> {
+      return IntegerType::get(type.getContext(), 16);
+    });
+    addConversion(
+        [&](IndexType type) -> llvm::Optional<Type> { return getIndexType(); });
+  }
+
+  Type convertTritonPointerType(triton::PointerType type) {
+    // Recursively translate pointee type
+    return LLVM::LLVMPointerType::get(convertType(type.getPointeeType()),
+                                      type.getAddressSpace());
+  }
+
+  Type getElementTypeForStruct(RankedTensorType type) {
+    auto ctx = type.getContext();
+    Attribute layout = type.getEncoding();
+    Type elemTy = convertType(type.getElementType());
+    auto dotOpLayout = layout.dyn_cast<DotOperandEncodingAttr>();
+    if (!dotOpLayout)
+      return elemTy;
+    auto mmaParent = dotOpLayout.getParent().dyn_cast<MmaEncodingAttr>();
+    if (!mmaParent)
+      return elemTy;
+    if (mmaParent.isAmpere()) {
+      int bitwidth = elemTy.getIntOrFloatBitWidth();
+      assert(bitwidth <= 32);
+      return IntegerType::get(ctx, 32);
+    } else {
+      assert(mmaParent.isVolta());
+      return vec_ty(elemTy, 2);
+    }
+  }
+
+  Type convertTritonTensorType(RankedTensorType type) {
+    auto ctx = type.getContext();
+    Attribute layout = type.getEncoding();
+    SmallVector<int64_t> shape(type.getShape().begin(), type.getShape().end());
+    Type eltType = getElementTypeForStruct(type);
+
+    if (auto shared_layout = layout.dyn_cast<SharedEncodingAttr>()) {
+      SmallVector<Type, 4> types;
+      // base ptr
+      auto ptrType = LLVM::LLVMPointerType::get(eltType, 3);
+      types.push_back(ptrType);
+      // shape dims
+      auto rank = type.getRank();
+      // offsets + strides
+      for (auto i = 0; i < rank * 2; i++) {
+        types.push_back(IntegerType::get(ctx, 32));
+      }
+      return LLVM::LLVMStructType::getLiteral(ctx, types);
+    }
+
+    unsigned numElementsPerThread = getTotalElemsPerThread(type);
+    SmallVector<Type, 4> types(numElementsPerThread, eltType);
+    return LLVM::LLVMStructType::getLiteral(ctx, types);
+  }
+};
+
 class TritonSPIRVConversionTarget : public ConversionTarget {
 public:
   explicit TritonSPIRVConversionTarget(MLIRContext &ctx,
                                        SPIRVTypeConverter &typeConverter)
       : ConversionTarget(ctx) {
     addLegalDialect<spirv::SPIRVDialect>();
+    addLegalDialect<LLVM::LLVMDialect>();
     //    addIllegalDialect<triton::TritonDialect>();
     //    addIllegalDialect<triton::gpu::TritonGPUDialect>();
     addIllegalDialect<mlir::gpu::GPUDialect>();
@@ -397,6 +509,9 @@ public:
 
     SPIRVConversionOptions options;
     // TODO: need confirm
+    mlir::LowerToLLVMOptions option(context);
+    option.useOpaquePointers = false;
+    SPIRVToLLVMTypeConverter converter(&getContext(), option);
     options.use64bitIndex = true;
     TritonGPUToSPIRVTypeConverter spirvTypeConverter(targetAttr, options);
     TritonSPIRVFunctionConversionTarget funcTarget(*context,
@@ -429,7 +544,7 @@ public:
 
     // Lower functions
     RewritePatternSet func_patterns(context);
-    func_patterns.add<FuncOpConversion>(spirvTypeConverter, context, numWarps,
+    func_patterns.add<FuncOpConversion>(converter, context, numWarps,
                                         allocation, 1 /*benefit*/);
     if (failed(
             applyPartialConversion(mod, funcTarget, std::move(func_patterns))))
@@ -499,10 +614,29 @@ public:
     mlir::populateGPUToSPIRVPatterns(spirvTypeConverter, patterns);
     mlir::cf::populateControlFlowToSPIRVPatterns(spirvTypeConverter, patterns);
 
-    //    ::llvm::DebugFlag = true;
-    //    ::llvm::setCurrentDebugType("dialect-conversion");
+    //        ::llvm::DebugFlag = true;
+    //        ::llvm::setCurrentDebugType("dialect-conversion");
     if (failed(applyPartialConversion(mod, spirvTarget, std::move(patterns))))
       return signalPassFailure();
+    //        ::llvm::DebugFlag = false;
+
+    llvm::outs() << "mod in spirv:\n " << mod << "\n";
+    llvm::outs().flush();
+
+    RewritePatternSet llvm_patterns(context);
+    /// Populates the given list with patterns that convert from SPIR-V to LLVM.
+    mlir::populateSPIRVToLLVMConversionPatterns(converter, llvm_patterns);
+    populateSPIRVToLLVMPatterns(converter, context, llvm_patterns, 10);
+
+    ConversionTarget target(getContext());
+    target.addIllegalDialect<spirv::SPIRVDialect>();
+    target.addLegalDialect<LLVM::LLVMDialect>();
+
+    target.addLegalOp<ModuleOp>();
+    //    ::llvm::DebugFlag = true;
+    //    ::llvm::setCurrentDebugType("dialect-conversion");
+    if (failed(applyPartialConversion(mod, target, std::move(llvm_patterns))))
+      signalPassFailure();
     //    ::llvm::DebugFlag = false;
   }
 

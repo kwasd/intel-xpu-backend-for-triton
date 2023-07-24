@@ -6,6 +6,9 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Target/LLVMIR/LLVMTranslationInterface.h"
 #include "mlir/Target/SPIRV/Serialization.h"
 #include "mlir/Transforms/Passes.h"
@@ -423,6 +426,104 @@ static LogicalResult translateTritonSPIRVToSPIRVIR(ModuleOp module,
   return mlir::success();
 }
 
+#if 0
+// Add the nvvm related metadata to LLVM IR.
+static void amendLLVMFunc(llvm::Function *func, const NVVMMetadata &metadata,
+                          bool isROCM) {
+  auto *module = func->getParent();
+  auto &ctx = func->getContext();
+
+  if (!metadata.maxntid.empty()) {
+    auto maxntid =
+        llvm::to_vector(llvm::map_range(metadata.maxntid, [&](int value) {
+          return llvm::ConstantInt::get(llvm::IntegerType::get(ctx, 32),
+                                        llvm::APInt(32, value));
+        }));
+
+    SmallVector<llvm::Metadata *> md_args = {llvm::ValueAsMetadata::get(func)};
+    if (maxntid.size() > 0) {
+      md_args.push_back(llvm::MDString::get(ctx, "maxntidx"));
+      md_args.push_back(llvm::ValueAsMetadata::get(maxntid[0]));
+    }
+    if (maxntid.size() > 1) {
+      md_args.push_back(llvm::MDString::get(ctx, "maxntidy"));
+      md_args.push_back(llvm::ValueAsMetadata::get(maxntid[1]));
+    }
+    if (maxntid.size() > 2) {
+      md_args.push_back(llvm::MDString::get(ctx, "maxntidz"));
+      md_args.push_back(llvm::ValueAsMetadata::get(maxntid[2]));
+    }
+
+    module->getOrInsertNamedMetadata("nvvm.annotations")
+        ->addOperand(llvm::MDNode::get(ctx, md_args));
+  }
+
+  if (metadata.isKernel) {
+    if (isROCM) {
+      func->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
+      func->addFnAttr("amdgpu-flat-work-group-size", "1, 1024");
+    } else {
+      llvm::Metadata *mdArgs[] = {
+          llvm::ValueAsMetadata::get(func), llvm::MDString::get(ctx, "kernel"),
+          llvm::ValueAsMetadata::get(
+              llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1))};
+      module->getOrInsertNamedMetadata("nvvm.annotations")
+          ->addOperand(llvm::MDNode::get(ctx, mdArgs));
+    }
+  }
+}
+#endif
+
+std::unique_ptr<llvm::Module>
+translateLLVMToLLVMIR(llvm::LLVMContext *llvmContext, mlir::ModuleOp module) {
+  DialectRegistry registry;
+  mlir::registerBuiltinDialectTranslation(registry);
+  mlir::registerLLVMDialectTranslation(registry);
+  //  mlir::registerROCDLDialectTranslation(registry);
+  //  mlir::registerNVVMDialectTranslation(registry);
+  module->getContext()->appendDialectRegistry(registry);
+
+  //  llvm::DenseMap<llvm::StringRef, NVVMMetadata> nvvmMetadata;
+  //  extractNVVMMetadata(module, &nvvmMetadata);
+
+  auto llvmModule = mlir::translateModuleToLLVMIR(module, *llvmContext);
+  if (!llvmModule) {
+    llvm::errs() << "Failed to emit LLVM IR\n";
+    return nullptr;
+  }
+
+  // Link external libraries before perform optimizations
+  // Note from libdevice users guide:
+  // https://docs.nvidia.com/cuda/libdevice-users-guide/basic-usage.html
+  // The standard process for linking with libdevice is to first link it with
+  // the target module, then run the standard LLVM optimization and code
+  // generation passes. This allows the optimizers to inline and perform
+  // analyses on the used library functions, and eliminate any used functions as
+  // dead code.
+  //  auto externLibs = getExternLibs(module);
+  //  for (auto &lib : externLibs) {
+  //    if (linkExternLib(*llvmModule, lib.first, lib.second, isROCM))
+  //      return nullptr;
+  //  }
+
+  auto optPipeline = mlir::makeOptimizingTransformer(
+      /*optLevel=*/3, /*sizeLevel=*/0,
+      /*targetMachine=*/nullptr);
+
+  if (auto err = optPipeline(llvmModule.get())) {
+    llvm::errs() << "Failed to optimize LLVM IR " << err << "\n";
+    return nullptr;
+  }
+
+  //  for (auto &func : llvmModule->functions()) {
+  //    auto it = nvvmMetadata.find(func.getName());
+  //    if (it != nvvmMetadata.end())
+  //      amendLLVMFunc(&func, it->second, isROCM);
+  //  }
+
+  return llvmModule;
+}
+
 std::string
 translateTritonGPUToSPIRVIR(mlir::ModuleOp module,
                             std::map<std::string, int> computeCapability) {
@@ -461,11 +562,20 @@ translateTritonGPUToSPIRVIR(mlir::ModuleOp module,
     return spirvModule;
   }
 
-  llvm::raw_string_ostream os(spirvModule);
-  if (failed(translateTritonSPIRVToSPIRVIR(module, os))) {
-    llvm::errs() << "Translate to SPIRV IR failed";
-    return spirvModule;
+  llvm::LLVMContext llvmContext;
+  auto llvmIR = translateLLVMToLLVMIR(&llvmContext, module);
+  if (!llvmIR) {
+    llvm::errs() << "Translate to LLVM IR failed";
+    return nullptr;
   }
+  llvm::raw_string_ostream os(spirvModule);
+  llvmIR->print(os, nullptr);
+  os.flush();
+  //  llvm::raw_string_ostream os(spirvModule);
+  //  if (failed(translateTritonSPIRVToSPIRVIR(module, os))) {
+  //    llvm::errs() << "Translate to SPIRV IR failed";
+  //    return spirvModule;
+  //  }
 
   return spirvModule;
 }
