@@ -1,5 +1,8 @@
 # SPIRV Tools is required to disassemble the spirv module
-find_package(SPIRVTools)
+find_package(SPIRV_Tools)
+
+# SPIRV-LLVM Translator is required.
+find_package(SPIRVToLLVMTranslator)
 
 add_mlir_translation_library(TritonSPIRV
         SPIRVTranslation.cpp
@@ -15,4 +18,8 @@ add_mlir_translation_library(TritonSPIRV
         # spirv tools
         SPIRV-Tools
         SPIRV-Tools-link
+        LLVMSPIRVLib
         )
+
+# Add SPIRVLLVMTranslator include dir
+target_include_directories(TritonSPIRV PRIVATE ${SPIRVToLLVMTranslator_INCLUDE_DIR})
