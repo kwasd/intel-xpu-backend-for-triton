@@ -16,6 +16,7 @@
 #include "triton/Conversion/TritonGPUToSPIRV/TritonGPUToSPIRVPass.h"
 #include "triton/Tools/Sys/GetEnv.hpp"
 
+#include "LLVMSPIRVLib.h"
 #include "SPIRV-Tools/tools/io.h"
 #include "spirv-tools/libspirv.hpp"
 #include "spirv-tools/linker.hpp"
@@ -24,11 +25,58 @@
 
 #include <dlfcn.h>
 #include <filesystem>
+#include <llvm/IRReader/IRReader.h>
+#include <llvm/Support/SourceMgr.h>
 
 namespace mlir {
 namespace triton {
 
 static spv_target_env defaultSPIRVTargetEnv = SPV_ENV_OPENCL_2_2;
+
+LogicalResult llvmToSPIRV(std::string llvmCode, std::ostream &output) {
+
+  llvm::LLVMContext context;
+  std::unique_ptr<llvm::MemoryBuffer> buffer =
+      llvm::MemoryBuffer::getMemBuffer(llvmCode.c_str());
+  llvm::SMDiagnostic error;
+  std::unique_ptr<llvm::Module> module =
+      llvm::parseIR(buffer->getMemBufferRef(), error, context);
+
+  if (!module) {
+    llvm::report_fatal_error("failed to parse IR: " + error.getMessage() +
+                             "lineno: " + std::to_string(error.getLineNo()));
+  }
+
+  // create triple
+  std::string triple = "spir64-unknown-unknown";
+  //  std::string proc = "sm_" + std::to_string(maxCC);
+  //  std::string layout = "";
+  //  std::string features = "";
+  // std::string features = "+ptx" + std::to_string(maxPTX);
+  //  initLLVM();
+  // verify and store llvm
+  //  llvm::legacy::PassManager pm;
+  //  pm.add(llvm::createVerifierPass());
+  //  pm.run(module);
+  // module->print(llvm::outs(), nullptr);
+
+  // create machine
+  module->setTargetTriple(triple);
+
+  // translate module to SPIRV IR
+  std::string Err;
+  SPIRV::TranslatorOpts opts;
+  bool Success = false;
+  Success = writeSpirv(module.get(), opts, output, Err);
+
+  if (!Success) {
+    llvm::report_fatal_error(
+        StringRef("failed to save LLVM as SPIR-V: " + Err));
+    return mlir::failure();
+  }
+
+  return mlir::success();
+}
 
 LogicalResult assembleSPIRV(std::string spirvCode, raw_ostream &output) {
   auto DisMessagePrinter = [](spv_message_level_t Level, const char *source,

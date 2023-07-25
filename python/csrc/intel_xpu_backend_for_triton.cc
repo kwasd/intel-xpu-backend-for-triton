@@ -69,13 +69,21 @@ void init_triton_translation(py::module &m) {
   m.def("compile_spirv_to_spvbin",
         [](const std::string &spirvCode, int capability) -> py::object {
           std::cout << "johnlu input assemble:\n" << spirvCode << std::endl;
-          std::string spvbin;
-          llvm::raw_string_ostream os(spvbin);
+          std::ostringstream os;
 
-          if (failed(::mlir::triton::assembleSPIRV(spirvCode, os)))
+          if (failed(::mlir::triton::llvmToSPIRV(spirvCode, os)))
             llvm::report_fatal_error("Failed to assemble SPIRV.");
 
-          py::bytes bytes(spvbin);
+          std::string spirvIR = os.str();
+          std::string spirvDisassemble;
+          llvm::raw_string_ostream output(spirvDisassemble);
+          if (failed(::mlir::triton::disassembleSPIRV(
+                  (uint32_t *)spirvIR.c_str(),
+                  spirvIR.length() / sizeof(uint32_t), output)))
+            llvm::report_fatal_error("Failed to assemble SPIRV.");
+          std::cout << "johnlu spirvDisassemble:\n"
+                    << spirvDisassemble << std::endl;
+          py::bytes bytes(spirvIR);
           return std::move(bytes);
         });
 }
