@@ -7,8 +7,6 @@
 #include "triton/Analysis/Allocation.h"
 
 #include "TypeConverter.h"
-//
-#include "DotOpHelpers.h" // This cannot be removed so far. The utility defined marco has conflict with SPIRV header.
 #include "Utility.h"
 #include "mlir/Dialect/SPIRV/Transforms/SPIRVConversion.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -854,16 +852,17 @@ private:
     auto threadsPerWarp = blockedLayout.getThreadsPerWarp();
     auto warpsPerCTA = blockedLayout.getWarpsPerCTA();
     auto order = blockedLayout.getOrder();
+    auto shapePerCTATile = getShapePerCTATile(blockedLayout);
+    auto shapePerCTA = triton::gpu::getShapePerCTA(blockedLayout, shape);
 
     unsigned rank = shape.size();
-    SmallVector<unsigned> shapePerCTA = getShapePerCTA(blockedLayout);
     SmallVector<unsigned> tilesPerDim(rank);
     for (unsigned k = 0; k < rank; ++k)
-      tilesPerDim[k] = ceil<unsigned>(shape[k], shapePerCTA[k]);
+      tilesPerDim[k] = ceil<unsigned>(shapePerCTA[k], shapePerCTATile[k]);
 
     SmallVector<SmallVector<unsigned>> offset(rank);
     for (unsigned k = 0; k < rank; ++k) {
-      // 1 block in minimum if shape[k] is less than shapePerCTA[k]
+      // 1 CTA tile in minimum if shapePerCTA[k] is less than shapePerCTATile[k]
       for (unsigned blockOffset = 0; blockOffset < tilesPerDim[k];
            ++blockOffset)
         for (unsigned warpOffset = 0; warpOffset < warpsPerCTA[k]; ++warpOffset)

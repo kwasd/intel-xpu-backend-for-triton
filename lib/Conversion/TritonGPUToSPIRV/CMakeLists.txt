@@ -9,8 +9,8 @@ add_mlir_conversion_library(TritonGPUToSPIRV
     ReduceOpToSPIRV.cpp
     ConvertLayoutOpToSPIRV.cpp
     TypeConverter.cpp
-    DotOpHelpers.cpp
     Utility.cpp
+    DotOpToSPIRV/FMA.cpp
     DotOpToSPIRV.cpp
 
     ADDITIONAL_HEADER_DIRS

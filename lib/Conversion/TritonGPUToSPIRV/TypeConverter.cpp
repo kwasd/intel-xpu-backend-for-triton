@@ -1,5 +1,4 @@
 #include "TypeConverter.h"
-#include "DotOpHelpers.h"
 #include "Utility.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
 #include "triton/Conversion/MLIRTypes.h"
@@ -7,9 +6,6 @@
 using namespace mlir;
 using namespace mlir::triton;
 
-using ::mlir::spirv::DotOpFMAConversionHelper;
-using ::mlir::spirv::DotOpMmaV1ConversionHelper;
-using ::mlir::spirv::MMA16816ConversionHelper;
 using ::mlir::triton::gpu::BlockedEncodingAttr;
 using ::mlir::triton::gpu::DotOperandEncodingAttr;
 using ::mlir::triton::gpu::getTotalElemsPerThread;

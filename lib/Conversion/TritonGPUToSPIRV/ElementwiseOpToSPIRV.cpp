@@ -83,6 +83,13 @@ static SmallVector<Value> reorderValues(const SmallVector<Value> &values,
   llvm_unreachable("unimplemented code path");
 }
 
+inline Type getElementType(Value value) {
+  auto type = value.getType();
+  if (auto tensorType = type.dyn_cast<RankedTensorType>())
+    return tensorType.getElementType();
+  return type;
+}
+
 inline SmallVector<Value> unpackI32(const SmallVector<Value> &inValues,
                                     Type srcTy,
                                     ConversionPatternRewriter &rewriter,

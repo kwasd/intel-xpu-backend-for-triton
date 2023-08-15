@@ -111,7 +111,7 @@ struct ArithConstantSplatOpSPIRVConversion
 struct CatOpConversion : public ConvertTritonGPUOpToLLVMPattern<CatOp> {
   using OpAdaptor = typename CatOp::Adaptor;
 
-  explicit CatOpConversion(TritonGPUToLLVMTypeConverter &typeConverter,
+  explicit CatOpConversion(TritonGPUToSPIRVTypeConverter &typeConverter,
                            PatternBenefit benefit = 1)
           : ConvertTritonGPUOpToLLVMPattern<CatOp>(typeConverter, benefit) {}
 
