@@ -130,38 +130,80 @@ py::tuple spirv_to_sycl_kernel(sycl::device &device, uint32_t *binary_ptr,
   int32_t n_spills = 0;
 
   auto ctx = device.get_platform().ext_oneapi_get_default_context();
-  auto l0_device =
-      sycl::get_native<sycl::backend::ext_oneapi_level_zero>(device);
-  auto l0_context = sycl::get_native<sycl::backend::ext_oneapi_level_zero>(ctx);
 
-  auto l0_module =
-      create_module(l0_context, l0_device, binary_ptr, binary_size);
-  printModuleKernelName(l0_module);
+  if (device.is_gpu()) {
+    auto l0_device =
+        sycl::get_native<sycl::backend::ext_oneapi_level_zero>(device);
+    auto l0_context =
+        sycl::get_native<sycl::backend::ext_oneapi_level_zero>(ctx);
 
-  auto l0_kernel = create_function(l0_module, kernel_name);
-  ze_kernel_properties_t props;
-  props.stype = ZE_STRUCTURE_TYPE_KERNEL_PROPERTIES;
-  props.pNext = nullptr;
+    auto l0_module =
+        create_module(l0_context, l0_device, binary_ptr, binary_size);
+    printModuleKernelName(l0_module);
 
-  EXPECT_EQ(ZE_RESULT_SUCCESS, zeKernelGetProperties(l0_kernel, &props));
+    auto l0_kernel = create_function(l0_module, kernel_name);
+    ze_kernel_properties_t props;
+    props.stype = ZE_STRUCTURE_TYPE_KERNEL_PROPERTIES;
+    props.pNext = nullptr;
 
-  n_spills = props.spillMemSize;
+    EXPECT_EQ(ZE_RESULT_SUCCESS, zeKernelGetProperties(l0_kernel, &props));
 
-  auto mod = sycl::make_kernel_bundle<sycl::backend::ext_oneapi_level_zero,
-                                      sycl::bundle_state::executable>(
-      {l0_module, sycl::ext::oneapi::level_zero::ownership::transfer}, ctx);
+    n_spills = props.spillMemSize;
 
-  auto fun = sycl::make_kernel<sycl::backend::ext_oneapi_level_zero>(
-      {mod, l0_kernel, sycl::ext::oneapi::level_zero::ownership::transfer},
-      ctx);
-  if (getBoolEnv("MLIR_ENABLE_DUMP")) {
-    //  auto kernel_ids = mod.get_kernel_ids();
-    //  std::cout << "num_kernels:" << kernel_ids.size() << std::endl;
-    //  for (auto& kernel_id : kernel_ids) {
-    //    std::cout << "fun name: " << kernel_id.get_name() << std::endl;
-    //  }
+    auto mod = sycl::make_kernel_bundle<sycl::backend::ext_oneapi_level_zero,
+                                        sycl::bundle_state::executable>(
+        {l0_module, sycl::ext::oneapi::level_zero::ownership::transfer}, ctx);
+
+    auto fun = sycl::make_kernel<sycl::backend::ext_oneapi_level_zero>(
+        {mod, l0_kernel, sycl::ext::oneapi::level_zero::ownership::transfer},
+        ctx);
+
+    compiled_kernel.push_back(std::make_unique<sycl::kernel>(fun));
+  } else {
+    auto ctx = device.get_platform().ext_oneapi_get_default_context();
+    auto ocl_ctx = sycl::get_native<sycl::backend::opencl>(ctx);
+    auto ocl_device = sycl::get_native<sycl::backend::opencl>(device);
+    cl_int cl_status;
+    cl_int errcode_ret;
+    size_t binary_size_in_bytes = binary_size * 4;
+    const auto cl_program = clCreateProgramWithBinary(
+        ocl_ctx, 1, &ocl_device, &binary_size_in_bytes,
+        (const unsigned char **)&binary_ptr, &cl_status, &errcode_ret);
+    if (errcode_ret != CL_SUCCESS) {
+      switch (errcode_ret) {
+      case CL_INVALID_CONTEXT:
+        std::cout << "clCreateProgramWithBinary error: CL_INVALID_CONTEXT"
+                  << std::endl;
+        break;
+      case CL_INVALID_VALUE:
+        std::cout << "clCreateProgramWithBinary error: CL_INVALID_CONTEXT"
+                  << std::endl;
+        break;
+      case CL_INVALID_DEVICE:
+        std::cout << "clCreateProgramWithBinary error: CL_INVALID_DEVICE"
+                  << std::endl;
+        break;
+      case CL_INVALID_BINARY:
+        std::cout << "clCreateProgramWithBinary error: CL_INVALID_BINARY"
+                  << std::endl;
+        break;
+      default:
+        std::cout << "clCreateProgramWithBinary error: " << errcode_ret
+                  << std::endl;
+        break;
+      }
+    }
+    cl_status =
+        clBuildProgram(cl_program, 1, &ocl_device, " ", nullptr, nullptr);
+
+    auto cl_kernel =
+        clCreateKernel(cl_program, kernel_name.c_str(), &errcode_ret);
+    assert(errcode_ret == CL_SUCCESS);
+
+    auto kernel = sycl::make_kernel<sycl::backend::opencl>(cl_kernel, ctx);
+    compiled_kernel.push_back(std::make_unique<sycl::kernel>(kernel));
   }
-  compiled_kernel.push_back(std::make_unique<sycl::kernel>(fun));
+
   sycl::kernel *ptr = compiled_kernel[compiled_kernel.size() - 1].get();
   if (getBoolEnv("MLIR_ENABLE_DUMP")) {
     std::cout << "compiled kernel ptr: " << ptr << std::endl;
@@ -177,6 +219,7 @@ py::tuple spirv_to_sycl_kernel(sycl::device &device, uint32_t *binary_ptr,
     auto kk = static_cast<sycl::kernel *>(f);
     delete kk;
   });
+#if 0
   sycl::kernel_bundle<sycl::bundle_state::executable> *kb =
       new sycl::kernel_bundle<sycl::bundle_state::executable>(mod);
   py::capsule module_capsulle(kb, [](void *f) {
@@ -184,8 +227,8 @@ py::tuple spirv_to_sycl_kernel(sycl::device &device, uint32_t *binary_ptr,
         static_cast<sycl::kernel_bundle<sycl::bundle_state::executable> *>(f);
     delete kk;
   });
-  py::tuple tup =
-      py::make_tuple(module_capsulle, kernel_capsulle, n_regs, n_spills);
+#endif
+  py::tuple tup = py::make_tuple(1, kernel_capsulle, n_regs, n_spills);
   return tup;
 }
 
@@ -213,33 +256,64 @@ PYBIND11_MODULE(sycl_utils, m) {
       [](void *device_ptr) {
         sycl::device *device = static_cast<sycl::device *>(device_ptr);
 
-        auto max_shared_mem =
-            device->get_info<sycl::info::device::local_mem_size>();
-        bool support_fp64 = device->has(sycl::aspect::fp64);
-        auto eu_count_per_ss = device->get_info<
-            sycl::info::device::ext_intel_gpu_eu_count_per_subslice>();
-        auto threads_per_eu = device->get_info<
-            sycl::info::device::ext_intel_gpu_hw_threads_per_eu>();
-        auto max_clock_frequency =
-            device->get_info<sycl::info::device::max_clock_frequency>();
-        auto max_work_group_size =
-            device->get_info<sycl::info::device::max_work_group_size>();
-        auto max_num_sub_groups =
-            device->get_info<sycl::info::device::max_num_sub_groups>();
-        auto sub_group_sizes =
-            device->get_info<sycl::info::device::sub_group_sizes>();
-        auto dev_name = device->get_info<sycl::info::device::name>();
+        if (device->is_gpu()) {
+          auto max_shared_mem =
+              device->get_info<sycl::info::device::local_mem_size>();
+          bool support_fp64 = device->has(sycl::aspect::fp64);
+          auto eu_count_per_ss = device->get_info<
+              sycl::info::device::ext_intel_gpu_eu_count_per_subslice>();
+          auto threads_per_eu = device->get_info<
+              sycl::info::device::ext_intel_gpu_hw_threads_per_eu>();
+          auto max_clock_frequency =
+              device->get_info<sycl::info::device::max_clock_frequency>();
+          auto max_work_group_size =
+              device->get_info<sycl::info::device::max_work_group_size>();
+          auto max_num_sub_groups =
+              device->get_info<sycl::info::device::max_num_sub_groups>();
+          auto sub_group_sizes =
+              device->get_info<sycl::info::device::sub_group_sizes>();
+          auto dev_name = device->get_info<sycl::info::device::name>();
 
-        py::dict properties = py::dict(
-            "max_shared_mem"_a = max_shared_mem,
-            "support_fp64"_a = support_fp64,
-            "eu_count_per_ss"_a = eu_count_per_ss,
-            "threads_per_eu"_a = threads_per_eu,
-            "max_clock_frequency"_a = max_clock_frequency,
-            "max_work_group_size"_a = max_work_group_size,
-            "max_num_sub_groups"_a = max_num_sub_groups,
-            "sub_group_sizes"_a = sub_group_sizes, "dev_name"_a = dev_name);
-        return properties;
+          py::dict properties = py::dict(
+              "max_shared_mem"_a = max_shared_mem,
+              "support_fp64"_a = support_fp64,
+              "eu_count_per_ss"_a = eu_count_per_ss,
+              "threads_per_eu"_a = threads_per_eu,
+              "max_clock_frequency"_a = max_clock_frequency,
+              "max_work_group_size"_a = max_work_group_size,
+              "max_num_sub_groups"_a = max_num_sub_groups,
+              "sub_group_sizes"_a = sub_group_sizes, "dev_name"_a = dev_name);
+          return properties;
+        } else {
+
+          auto max_shared_mem =
+              device->get_info<sycl::info::device::local_mem_size>();
+          bool support_fp64 = device->has(sycl::aspect::fp64);
+          //          auto eu_count_per_ss = device->get_info<
+          //              sycl::info::device::ext_intel_gpu_eu_count_per_subslice>();
+          //          auto threads_per_eu = device->get_info<
+          //              sycl::info::device::ext_intel_gpu_hw_threads_per_eu>();
+          auto max_clock_frequency =
+              device->get_info<sycl::info::device::max_clock_frequency>();
+          auto max_work_group_size =
+              device->get_info<sycl::info::device::max_work_group_size>();
+          auto max_num_sub_groups =
+              device->get_info<sycl::info::device::max_num_sub_groups>();
+          auto sub_group_sizes =
+              device->get_info<sycl::info::device::sub_group_sizes>();
+          auto dev_name = device->get_info<sycl::info::device::name>();
+
+          py::dict properties = py::dict(
+              "max_shared_mem"_a = max_shared_mem,
+              "support_fp64"_a = support_fp64,
+              //              "eu_count_per_ss"_a = eu_count_per_ss,
+              //              "threads_per_eu"_a = threads_per_eu,
+              "max_clock_frequency"_a = max_clock_frequency,
+              "max_work_group_size"_a = max_work_group_size,
+              "max_num_sub_groups"_a = max_num_sub_groups,
+              "sub_group_sizes"_a = sub_group_sizes, "dev_name"_a = dev_name);
+          return properties;
+        }
       },
       "Get the properties for a given device",
       py::return_value_policy::take_ownership);

@@ -323,9 +323,9 @@ def _build_xpu_ext(name, src, srcdir):
     extra_compile_args = ['-w']
     # library_dirs = [cuda_lib_dir]
     # include_dirs = [srcdir, cu_include_dir]
-    # library_dirs = []
+    library_dirs = ['/opt/intel/oneapi/lib/']
     # include_dirs = [srcdir]
-    libraries = ['ze_loader']
+    libraries = ['ze_loader', 'OpenCL']
     # extra arguments
     # extra_link_args = []
     # create extension module
@@ -336,6 +336,7 @@ def _build_xpu_ext(name, src, srcdir):
     ext = SYCLExtension(name,
                         [src],
                         extra_compile_args=extra_compile_args,
+                        library_dirs=library_dirs,
                         libraries=libraries,
                         define_macros=define_macros)
 
