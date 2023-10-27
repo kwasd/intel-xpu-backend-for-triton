@@ -43,4 +43,6 @@ add_mlir_conversion_library(TritonGPUToSPIRV
     MLIRLLVMDialect
     LLVMGenXIntrinsics
     MLIRTargetLLVMIRImport
+    GenISAIntrinsics
+    LLVMSupport
 )
