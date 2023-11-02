@@ -1214,12 +1214,19 @@ void populateElementwiseOpToSPIRVPatterns(
   POPULATE_BINARY_OP(arith::RemFOp, spirv::FRemOp) // %
   POPULATE_BINARY_OP(arith::RemSIOp, spirv::SRemOp)
   POPULATE_BINARY_OP(arith::RemUIOp, spirv::UModOp)
-  POPULATE_BINARY_OP(arith::AndIOp, arith::AndIOp) // &
-  POPULATE_BINARY_OP(arith::OrIOp, arith::OrIOp)   // |
-  POPULATE_BINARY_OP(arith::XOrIOp, arith::XOrIOp) // ^
+  POPULATE_BINARY_OP(arith::AndIOp, arith::AndIOp)   // &
+  POPULATE_BINARY_OP(arith::OrIOp, arith::OrIOp)     // |
+  POPULATE_BINARY_OP(arith::XOrIOp, arith::XOrIOp)   // ^
+  POPULATE_BINARY_OP(arith::ShLIOp, arith::ShLIOp)   // <<
+  POPULATE_BINARY_OP(arith::ShRSIOp, arith::ShRSIOp) // >>
+  POPULATE_BINARY_OP(arith::ShRUIOp, arith::ShRUIOp) // >>
+  POPULATE_BINARY_OP(arith::MinFOp, arith::MinFOp)   // fmin
+  POPULATE_BINARY_OP(arith::MaxFOp, arith::MaxFOp)   // fmax
+  POPULATE_BINARY_OP(arith::MinSIOp, arith::MinSIOp) // smin
+  POPULATE_BINARY_OP(arith::MaxSIOp, arith::MaxSIOp) // smax
+  POPULATE_BINARY_OP(arith::MinUIOp, arith::MinUIOp) // umin
+  POPULATE_BINARY_OP(arith::MaxUIOp, arith::MaxUIOp) // umax
 #undef POPULATE_BINARY_OP
-
-  //  patterns.add<SIMDTest>(typeConverter, context, benefit);
 
 #define POPULATE_UNARY_OP(SRC_OP, DST_OP)                                      \
   patterns.add<ElementwiseOpSPIRVConversion<SRC_OP, DST_OP>>(                  \
