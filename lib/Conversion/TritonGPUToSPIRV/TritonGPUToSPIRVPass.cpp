@@ -23,6 +23,7 @@
 #include "ElementwiseOpToSPIRV.h"
 #include "LoadStoreOpToSPIRV.h"
 #include "ReduceOpToSPIRV.h"
+#include "TensorPtrOpsToSPIRV.h"
 #include "TritonGPUToSPIRV.h"
 #include "TypeConverter.h"
 #include "ViewOpToSPIRV.h"
@@ -495,6 +496,11 @@ public:
                                   numWarps, axisInfoAnalysis, &allocation,
                                   nullptr,
                                   /*benefit=*/10, computeCapability);
+    // TensorPtrOp
+    populateTensorPtrOpsToSPIRVPatterns(spirvTypeConverter, context, patterns,
+                                        numWarps, axisInfoAnalysis, allocation,
+                                        indexCacheInfo,
+                                        /*benefit=*/10);
 
     // Add arith/math's patterns to help convert scalar expression to SPIRV.
     mlir::arith::populateArithToSPIRVPatterns(spirvTypeConverter, patterns);

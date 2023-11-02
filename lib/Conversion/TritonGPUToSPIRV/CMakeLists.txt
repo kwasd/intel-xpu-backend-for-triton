@@ -15,6 +15,7 @@ add_mlir_conversion_library(TritonGPUToSPIRV
     DotOpToSPIRV/XMX.cpp
     LoadStoreOpToSPIRV.cpp
     ReduceOpToSPIRV.cpp
+    TensorPtrOpsToSPIRV.cpp
     TypeConverter.cpp
     Utility.cpp
     DotOpToSPIRV.cpp
