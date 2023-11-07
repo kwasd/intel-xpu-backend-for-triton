@@ -1,0 +1,38 @@
+name: Email
+
+on:
+  push:
+    branches:
+      - yudong/mail
+
+jobs:
+
+  Mail-Tests:
+
+    runs-on: [self-hosted, PVC]
+
+    steps:
+      - name: Test
+        run: |
+          cd ${HOME}/triton-preci
+          echo -e "============ test ============" | tee ./test.txt
+
+      - name: Upload
+        uses: actions/upload-artifact@v3
+        with:
+          name: Test-Data
+          path: ${HOME}/triton-preci/test.txt
+      
+      - name: Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+            server_address: ${{secrets.ACTION_MAIL_SERVER}}
+            server_port: ${{secrets.ACTION_MAIL_SERVER_PORT}}
+            # username: ${{ secrets.MAILUSERNAME }}
+            # password: ${{ secrets.MAILPASSWORD }}
+            subject: Test from Github Action on ${{ github.repository }}
+            to: ${{ secrets.ACTION_MAIL_RECEIVERS }}
+            cc: ${{ secrets.ACTION_MAIL_CC }}
+            from: GitHub Actions (${{ github.repository }})
+            body: Test, For details pls see "github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            attachments: ${HOME}/triton-preci/*.txt
