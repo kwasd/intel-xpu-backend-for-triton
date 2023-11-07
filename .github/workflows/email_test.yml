@@ -29,12 +29,10 @@ jobs:
         with:
             server_address: ${{secrets.ACTION_MAIL_SERVER}}
             server_port: ${{secrets.ACTION_MAIL_SERVER_PORT}}
-            # username: ${{ secrets.MAILUSERNAME }}
-            # password: ${{ secrets.MAILPASSWORD }}
             subject: Test from Github Action on ${{ github.repository }}
             to: ${{ secrets.ACTION_MAIL_RECEIVERS }}
             cc: ${{ secrets.ACTION_MAIL_CC }}
-            from: GitHub Actions (${{ github.repository }})
+            from: noreply@example.com
             ignore_cert: true
             body: Test, For details pls see "github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             attachments: /home/sdp/triton-preci/*.txt
