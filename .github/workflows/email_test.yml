@@ -15,13 +15,14 @@ jobs:
       - name: Test
         run: |
           cd ${HOME}/triton-preci
+          rm -rf test.txt
           echo -e "============ test ============" | tee ./test.txt
 
       - name: Upload
         uses: actions/upload-artifact@v3
         with:
           name: Test-Data
-          path: ${HOME}/triton-preci/test.txt
+          path: /home/sdp/triton-preci/test.txt
       
       - name: Email
         uses: dawidd6/action-send-mail@v3
@@ -35,4 +36,4 @@ jobs:
             cc: ${{ secrets.ACTION_MAIL_CC }}
             from: GitHub Actions (${{ github.repository }})
             body: Test, For details pls see "github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            attachments: ${HOME}/triton-preci/*.txt
+            attachments: /home/sdp/triton-preci/*.txt
