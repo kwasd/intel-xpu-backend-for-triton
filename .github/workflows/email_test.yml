@@ -1,4 +1,4 @@
-name: Email
+name: Debug
 
 on:
   push:
@@ -9,30 +9,31 @@ jobs:
 
   Mail-Tests:
 
-    runs-on: [self-hosted, PVC]
+    runs-on: [self-hosted, PVC_E2E]
 
     steps:
-      - name: Test
+      - name: Test Results Overview
         run: |
-          cd ${HOME}/triton-preci
-          rm -rf test.txt
-          echo -e "============ test ============" | tee ./test.txt
-
-      - name: Upload
-        uses: actions/upload-artifact@v3
-        with:
-          name: Test-Data
-          path: /home/sdp/triton-preci/test.txt
-      
-      - name: Email
-        uses: dawidd6/action-send-mail@v3
-        with:
-            server_address: ${{secrets.ACTION_MAIL_SERVER}}
-            server_port: ${{secrets.ACTION_MAIL_SERVER_PORT}}
-            subject: Test from Github Action on ${{ github.repository }}
-            to: ${{ secrets.ACTION_MAIL_RECEIVERS }}
-            cc: ${{ secrets.ACTION_MAIL_CC }}
-            from: noreply@example.com
-            ignore_cert: true
-            body: Test, For details pls see "github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            attachments: /home/sdp/triton-preci/*.txt
+          cd ${HOME}/triton-preci/pytorch/inductor_log/huggingface
+          cd amp_bf16
+          echo -e "============ Acc Check for HF amp_bf16 ============" | tee -a ./e2e_summary.log
+          csv_lines_inf=$(cat inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | wc -l)
+          let num_total_amp_bf16=csv_lines_inf-1
+          num_passed_amp_bf16_inf=$(grep "pass" inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | wc -l)
+          let num_failed_amp_bf16_inf=num_total_amp_bf16-num_passed_amp_bf16_inf
+          amp_bf16_inf_acc_pass_rate=`awk 'BEGIN{printf "%.2f%%\n",('$num_passed_amp_bf16_inf'/'$num_total_amp_bf16')*100}'`
+          echo "num_total_amp_bf16: $num_total_amp_bf16" | tee -a ./e2e_summary.log
+          echo "num_passed_amp_bf16_inf: $num_passed_amp_bf16_inf" | tee -a ./e2e_summary.log
+          echo "num_failed_amp_bf16_inf: $num_failed_amp_bf16_inf" | tee -a ./e2e_summary.log
+          echo "amp_bf16_inf_acc_pass_rate: $amp_bf16_inf_acc_pass_rate" | tee -a ./e2e_summary.log
+          cd ../amp_fp16
+          echo -e "============ Acc Check for HF amp_fp16 ============" | tee -a ./e2e_summary.log
+          csv_lines_inf=$(cat inductor_huggingface_amp_fp16_inference_xpu_accuracy.csv | wc -l)
+          let num_total_amp_fp16=csv_lines_inf-1
+          num_passed_amp_fp16_inf=$(grep "pass" inductor_huggingface_amp_fp16_inference_xpu_accuracy.csv | wc -l)
+          let num_failed_amp_fp16_inf=num_total_amp_fp16-num_passed_amp_fp16_inf
+          amp_fp16_inf_acc_pass_rate=`awk 'BEGIN{printf "%.2f%%\n",('$num_passed_amp_fp16_inf'/'$num_total_amp_fp16')*100}'`
+          echo "num_total_amp_fp16: $num_total_amp_fp16" | tee -a ./e2e_summary.log
+          echo "num_passed_amp_fp16_inf: $num_passed_amp_fp16_inf" | tee -a ./e2e_summary.log
+          echo "num_failed_amp_fp16_inf: $num_failed_amp_fp16_inf" | tee -a ./e2e_summary.log
+          echo "amp_fp16_inf_acc_pass_rate: $amp_fp16_inf_acc_pass_rate" | tee -a ./e2e_summary.log
