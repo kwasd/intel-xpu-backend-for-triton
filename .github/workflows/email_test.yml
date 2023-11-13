@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Test Results Overview
         run: |
-          set -x
+          set +e
           cd ${HOME}/triton-preci/pytorch/inductor_log/huggingface
           cd amp_bf16
           echo -e "============ Acc Check for HF amp_bf16 ============" | tee -a ./e2e_summary.log
@@ -22,7 +22,7 @@ jobs:
           echo $csv_lines_inf
           let num_total_amp_bf16=csv_lines_inf-1
           echo $num_total_amp_bf16
-          num_passed_amp_bf16_inf=$(grep "pass" ./inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | wc -l)
+          num_passed_amp_bf16_inf=$(grep "pass" inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | wc -l)
           echo $num_passed_amp_bf16_inf
           let num_failed_amp_bf16_inf=num_total_amp_bf16-num_passed_amp_bf16_inf
           echo $num_failed_amp_bf16_inf
