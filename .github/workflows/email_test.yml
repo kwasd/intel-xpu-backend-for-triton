@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Test Results Overview
         run: |
-          set +e
+          set -x
           cd ${HOME}/triton-preci/pytorch/inductor_log/huggingface
           cd amp_bf16
           echo -e "============ Acc Check for HF amp_bf16 ============" | tee -a ./e2e_summary.log
