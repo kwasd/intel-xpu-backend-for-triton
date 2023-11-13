@@ -18,7 +18,8 @@ jobs:
           cd ${HOME}/triton-preci/pytorch/inductor_log/huggingface
           cd amp_bf16
           echo -e "============ Acc Check for HF amp_bf16 ============" | tee -a ./e2e_summary.log
-          csv_lines_inf=$(cat inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | wc -l)
+          # csv_lines_inf=$(cat inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | wc -l)
+          csv_lines_inf=$(cat inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | grep "pass"  | wc -l)
           echo $csv_lines_inf
           let num_total_amp_bf16=csv_lines_inf-1
           echo $num_total_amp_bf16
