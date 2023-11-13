@@ -14,12 +14,13 @@ jobs:
     steps:
       - name: Test Results Overview
         run: |
+          set +e
           cd ${HOME}/triton-preci/pytorch/inductor_log/huggingface
           cd amp_bf16
           echo -e "============ Acc Check for HF amp_bf16 ============" | tee -a ./e2e_summary.log
-          csv_lines_inf=$(cat ./inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | wc -l)
+          csv_lines_inf=$(cat inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | wc -l)
           let num_total_amp_bf16=csv_lines_inf-1
-          num_passed_amp_bf16_inf=$(grep "pass" ./inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | wc -l)
+          num_passed_amp_bf16_inf=$(grep "pass" inductor_huggingface_amp_bf16_inference_xpu_accuracy.csv | wc -l)
           let num_failed_amp_bf16_inf=num_total_amp_bf16-num_passed_amp_bf16_inf
           amp_bf16_inf_acc_pass_rate=`awk 'BEGIN{printf "%.2f%%\n",('$num_passed_amp_bf16_inf'/'$num_total_amp_bf16')*100}'`
           echo "num_total_amp_bf16: $num_total_amp_bf16" | tee -a ./e2e_summary.log
@@ -28,9 +29,9 @@ jobs:
           echo "amp_bf16_inf_acc_pass_rate: $amp_bf16_inf_acc_pass_rate" | tee -a ./e2e_summary.log
           cd ../amp_fp16
           echo -e "============ Acc Check for HF amp_fp16 ============" | tee -a ./e2e_summary.log
-          csv_lines_inf=$(cat ./inductor_huggingface_amp_fp16_inference_xpu_accuracy.csv | wc -l)
+          csv_lines_inf=$(cat inductor_huggingface_amp_fp16_inference_xpu_accuracy.csv | wc -l)
           let num_total_amp_fp16=csv_lines_inf-1
-          num_passed_amp_fp16_inf=$(grep "pass" ./inductor_huggingface_amp_fp16_inference_xpu_accuracy.csv | wc -l)
+          num_passed_amp_fp16_inf=$(grep "pass" inductor_huggingface_amp_fp16_inference_xpu_accuracy.csv | wc -l)
           let num_failed_amp_fp16_inf=num_total_amp_fp16-num_passed_amp_fp16_inf
           amp_fp16_inf_acc_pass_rate=`awk 'BEGIN{printf "%.2f%%\n",('$num_passed_amp_fp16_inf'/'$num_total_amp_fp16')*100}'`
           echo "num_total_amp_fp16: $num_total_amp_fp16" | tee -a ./e2e_summary.log
