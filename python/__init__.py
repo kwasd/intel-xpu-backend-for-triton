@@ -509,7 +509,8 @@ class XPUBackend(BaseBackend):
             pm.add_tritongpu_optimize_epilogue_pass()
         pm.add_tritongpu_optimize_dot_operands_pass()
         pm.add_cse_pass()
-        pm.add_triton_intel_gpu_pipe_line_pass(opt.num_stages, opt.num_warps, opt.num_ctas, asdict(opt))
+        # pm.add_triton_intel_gpu_pipe_line_pass(opt.num_stages, opt.num_warps, opt.num_ctas, asdict(opt))
+        pm.add_tritongpu_pipeline_pass(opt.num_stages, opt.num_warps, opt.num_ctas, asdict(opt))
         # pm.add_tritongpu_materialize_load_store_pass(opt.num_warps, capability)
         # if capability // 10 <= 8:
         #     pm.add_tritongpu_prefetch_pass()

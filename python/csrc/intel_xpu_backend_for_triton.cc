@@ -408,13 +408,12 @@ void init_triton_translation(py::module &m) {
               py::dict computeCapability) {
              self.addPass(mlir::createTritonIntelGPUPipelinePass(numStages));
            })
-      //      .def("add_tritongpu_pipeline_pass",
-      //           [](mlir::PassManager &self, int numStages, int numWarps, int
-      //           numCTAs,
-      //              int computeCapability) {
-      //             self.addPass(mlir::createTritonGPUPipelinePass(
-      //                 numStages, numWarps, numCTAs, computeCapability));
-      //           })
+      .def("add_tritongpu_pipeline_pass",
+           [](mlir::PassManager &self, int numStages, int numWarps, int numCTAs,
+              py::dict computeCapability) {
+             self.addPass(mlir::createTritonGPUPipelinePass(numStages, numWarps,
+                                                            numCTAs, 80));
+           })
       .def("add_tritongpu_rewrite_tensor_pointer_pass",
            [](mlir::PassManager &self, py::dict computeCapability) {
              self.addPass(mlir::createTritonGPURewriteTensorPointerPass(80));
