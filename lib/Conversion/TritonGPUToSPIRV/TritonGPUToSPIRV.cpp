@@ -357,6 +357,19 @@ struct AllocTensorOpSPIRVConversion
   }
 };
 
+struct DeallocTensorSPIRVOpConversion
+    : public ConvertTritonGPUOpToSPIRVPattern<triton::gpu::DeallocTensorOp> {
+  using ConvertTritonGPUOpToSPIRVPattern<
+      triton::gpu::DeallocTensorOp>::ConvertTritonGPUOpToSPIRVPattern;
+
+  LogicalResult
+  matchAndRewrite(triton::gpu::DeallocTensorOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 struct ExtractSliceOpSPIRVConversion
     : public ConvertTritonGPUOpToSPIRVPattern<triton::gpu::ExtractSliceOp> {
   using ConvertTritonGPUOpToSPIRVPattern<
@@ -466,6 +479,7 @@ void populateTritonGPUToSPIRVPatterns(
   patterns.add<AddPtrOpSPIRVConversion>(typeConverter, context, benefit);
   patterns.add<AllocTensorOpSPIRVConversion>(typeConverter, context, allocation,
                                              benefit);
+  patterns.add<DeallocTensorSPIRVOpConversion>(typeConverter, context, benefit);
   patterns.add<AsyncCommitGroupOpSPIRVConversion>(typeConverter, context,
                                                   benefit);
   patterns.add<AsyncWaitOpSPIRVConversion>(typeConverter, context, benefit);
