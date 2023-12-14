@@ -1,6 +1,7 @@
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+
 #include "LoadStoreOpToSPIRV.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/TypeUtilities.h"
 
