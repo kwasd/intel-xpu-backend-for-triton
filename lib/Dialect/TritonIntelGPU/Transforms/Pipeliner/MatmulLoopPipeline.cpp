@@ -485,13 +485,16 @@ static std::vector<std::pair<Operation *, unsigned>>
 createSchedule(scf::ForOp forOp, int numStages) {
   SmallVector<Operation *> prefetchOps;
   SmallVector<Operation *> loadOps;
+  //  SmallVector<Operation *> dotOps;
   // Find the prefetch/load ops that will go respectively in stage 0 and stage
-  // `numStages - 2`. All the other operations will go in stage `numStages - 1`.
+  // `numStages - 1`. All the other operations will go in stage `numStages - 1`.
   for (Operation &op : forOp.getBody()->without_terminator()) {
     if (isa<triton::gpu::intel::PrefetchCacheOp>(op))
       prefetchOps.emplace_back(&op);
     if (isa<tt::LoadOp>(op))
       loadOps.emplace_back(&op);
+    //    if (isa<tt::DotOp>(op))
+    //      dotOps.emplace_back(&op);
   }
   DenseSet<Operation *> prefetchAndDeps;
   for (Operation *op : prefetchOps) {
@@ -514,19 +517,19 @@ createSchedule(scf::ForOp forOp, int numStages) {
       }
     }
   }
-  // Schedule loads with a distance of 1 in stage 0
-  for (Operation *op : distanceOneUsers) {
-    if (isa<tt::LoadOp>(op)) {
-      addDep(op, prefetchAndDeps, true);
-    }
-  }
+  //  // Schedule loads with a distance of 1 in stage 0
+  //  for (Operation *op : distanceOneUsers) {
+  //    if (isa<tt::LoadOp>(op)) {
+  //      addDep(op, prefetchAndDeps, true);
+  //    }
+  //  }
   // For the rest of the ops we can move then into stage 1 so that they can be
   // closer to their uses.
   DenseSet<Operation *> stage1deps;
   for (Operation *op : distanceOneUsers) {
-    if (!isa<tt::LoadOp>(op)) {
-      addDep(op, stage1deps, true, &prefetchAndDeps);
-    }
+    //    if (!isa<tt::LoadOp>(op)) {
+    addDep(op, stage1deps, true, &prefetchAndDeps);
+    //    }
   }
 
   for (auto &opPair : stage1deps) {
@@ -543,11 +546,6 @@ createSchedule(scf::ForOp forOp, int numStages) {
     llvm::outs().flush();
   }
   std::vector<std::pair<Operation *, unsigned>> schedule;
-  // Schedule stage `numStage - 1` first.
-  addOps(forOp, numStages - 1, schedule, [&](Operation *op) {
-    return prefetchAndDeps.count(op) == 0 && stage1deps.count(op) == 0 &&
-           loadAndDeps.count(op) == 0;
-  });
 
   // Schedule some dependencies with distance of 1 into stage 1 to reduce
   // pressure.
@@ -558,10 +556,16 @@ createSchedule(scf::ForOp forOp, int numStages) {
   addOps(forOp, 0, schedule,
          [&](Operation *op) { return prefetchAndDeps.count(op); });
 
-  // Finally schedule the load ops in stage `numStage - 2` so that they get
+  // Schedule stage `numStage - 1` first.
+  // Finally schedule the dot ops in stage `numStage - 1` so that they get
   // pre-fetched and play well with pretech pass.
-  addOps(forOp, numStages - 2, schedule,
+  addOps(forOp, numStages - 1, schedule,
          [&](Operation *op) { return loadAndDeps.count(op); });
+
+  addOps(forOp, numStages - 1, schedule, [&](Operation *op) {
+    return prefetchAndDeps.count(op) == 0 && stage1deps.count(op) == 0 &&
+           loadAndDeps.count(op) == 0;
+  });
 
   for (auto &opPair : schedule) {
     llvm::outs() << "johnlu stage:" << opPair.second << " def:" << *opPair.first
