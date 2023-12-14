@@ -1,8 +1,11 @@
+#include "LoadStoreOpToSPIRV.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/TypeUtilities.h"
 
-#include "LoadStoreOpToSPIRV.h"
+#include "Utility.h"
+#include "triton/Conversion/TritonGPUToSPIRV/VCIntrinsicHelper.h"
 
 using namespace mlir;
 using namespace mlir::triton;
@@ -1022,12 +1025,259 @@ struct InsertSliceAsyncOpSPIRVConversion
   }
 };
 
+struct PrefetchOpSPIRVConversion : public ConvertTritonGPUOpToSPIRVPattern<
+                                       triton::gpu::intel::PrefetchCacheOp>,
+                                   public LoadStoreSPIRVConversionBase {
+  using ConvertTritonGPUOpToSPIRVPattern<
+      triton::gpu::intel::PrefetchCacheOp>::ConvertTritonGPUOpToSPIRVPattern;
+
+  PrefetchOpSPIRVConversion(TritonGPUToSPIRVTypeConverter &converter,
+                            MLIRContext *context,
+                            ModuleAxisInfoAnalysis &axisAnalysisPass,
+                            PatternBenefit benefit)
+      : ConvertTritonGPUOpToSPIRVPattern<triton::gpu::intel::PrefetchCacheOp>(
+            converter, context, benefit),
+        LoadStoreSPIRVConversionBase(axisAnalysisPass) {}
+
+  LogicalResult
+  matchAndRewrite(triton::gpu::intel::PrefetchCacheOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op->getLoc();
+
+    // original values
+    Value ptr = op.getPtr();
+    //    Value mask = op.getMask();
+
+    // adaptor values
+    assert(!isTensorPointerType(ptr.getType()) &&
+           "Cannot convert prefetch with a tensor pointer into LLVM; "
+           "this case should be transformed to normal load before lowering");
+    Value spirvPtr = adaptor.getPtr();
+    //    Value spirvMask = adaptor.getMask();
+
+    // Determine the vectorization size
+    auto ptrType =
+        mlir::getElementTypeOrSelf(ptr).cast<mlir::triton::PointerType>();
+    Type valueTy = ptrType.getPointeeType();
+    Type valueElemTy =
+        typeConverter->convertType(getElementTypeOrSelf(valueTy));
+    unsigned vec = getVectorSize(ptr);
+    unsigned numElems = getTotalElemsPerThread(ptr.getType());
+    //    if (spirvMask)
+    //      vec = std::min<size_t>(vec, getMaskAlignment(mask));
+
+    // Get the SPIRV values for pointers
+    auto ptrElems = getTypeConverter()->unpackLLElements(
+        loc, spirvPtr, rewriter, ptr.getType());
+    assert(ptrElems.size() == numElems);
+
+    // Get the SPIRV values for mask
+    //    SmallVector<Value> maskElems;
+    //    if (spirvMask) {
+    //      maskElems = getTypeConverter()->unpackLLElements(loc, spirvMask,
+    //      rewriter,
+    //                                                       mask.getType());
+    //      assert(maskElems.size() == numElems);
+    //    }
+
+    bool otherIsSplatConstInt = false;
+    DenseElementsAttr constAttr;
+    int64_t splatVal = 0;
+    //    if (other && valueElemTy.isa<IntegerType>() &&
+    //        matchPattern(other, m_Constant(&constAttr)) && constAttr.isSplat()
+    //        && constAttr.getElementType().isa<IntegerType>()) {
+    //      otherIsSplatConstInt = true;
+    //      splatVal = constAttr.getSplatValue<APInt>().getSExtValue();
+    //    }
+    //    SmallVector<Value> otherElems;
+    //    if (other) {
+    //      otherElems = getTypeConverter()->unpackLLElements(
+    //          loc, spirvOther, rewriter, other.getType());
+    //    }
+
+    // vectorized iteration through all the pointer/mask/other elements
+    const int valueElemNBits =
+        std::max(8u, valueElemTy.getIntOrFloatBitWidth());
+    const int numVecs = numElems / vec;
+
+    const size_t maxWordWidth = std::max<size_t>(32, valueElemNBits);
+    const size_t totalWidth = valueElemNBits * vec;
+    const size_t width = std::min(totalWidth, maxWordWidth);
+    const size_t nWords = std::max<size_t>(1, totalWidth / width);
+    const size_t wordNElems = width / valueElemNBits;
+    assert(wordNElems * nWords * numVecs == numElems);
+    Type elemTy = i8_ty;
+    Type ptrTy = ptr_ty(elemTy, spirv::StorageClass::CrossWorkgroup);
+    auto llvmPtrTy = LLVM::LLVMPointerType::get(op.getContext(), 1);
+    auto mod = op->getParentOfType<mlir::ModuleOp>();
+    int threadsPerWarp = triton::gpu::TritonGPUDialect::getNumWarps(mod);
+    mlir::triton::intel::IntrinsicBuilder builder(threadsPerWarp, rewriter);
+    mlir::triton::intel::GenISA_Prefetch prefetchOp(&builder, llvmPtrTy);
+
+    for (size_t vecStart = 0; vecStart < numElems; vecStart += vec) {
+      Value ptrElem = bitcast(ptrElems[vecStart], ptrTy);
+
+      uint32_t prefetchBytes = nWords * width / 8;
+      prefetchOp(rewriter, loc, ptrElem, prefetchBytes);
+
+#if 0
+
+      Value pred = mask ? maskElems[vecStart] : int_val(1, 1);
+
+      // scalar load
+      // Create block structure for the masked load.
+      auto *preheader = rewriter.getInsertionBlock();
+      auto opPosition = rewriter.getInsertionPoint();
+      auto *tailblock = rewriter.splitBlock(preheader, opPosition);
+      tailblock->addArgument(retTy, loc);
+      auto *condblock = rewriter.createBlock(tailblock);
+
+      // Test the mask
+      rewriter.setInsertionPoint(preheader, preheader->end());
+
+      // Prediction false to use the other value.
+      Value other_ = undef(retTy);
+      if (other) {
+        for (size_t ii = 0; ii < nWords; ++ii) {
+          size_t size = width / valueElemNBits;
+
+          Value v;
+          if (size > 1) {
+            Type vecTy = mlir::VectorType::get({(int64_t)size}, valueElemTy);
+            v = undef(vecTy);
+            for (size_t s = 0; s < size; ++s) {
+              Value falseVal = otherElems[vecStart + ii * size + s];
+              v = insert_val(vecTy, falseVal, v, rewriter.getI32ArrayAttr(s));
+            }
+            v = bitcast(v, IntegerType::get(getContext(), width));
+          } else {
+            Value falseVal = otherElems[vecStart + ii * size];
+            v = bitcast(falseVal, IntegerType::get(getContext(), width));
+          }
+
+          if (nWords > 1)
+            other_ = insert_val(retTy, v, other_, rewriter.getI32ArrayAttr(ii));
+          else
+            other_ = v;
+        }
+      }
+
+      rewriter.create<mlir::cf::CondBranchOp>(loc, pred, condblock, tailblock,
+                                              ValueRange{other_});
+
+      // Do the load
+      rewriter.setInsertionPoint(condblock, condblock->end());
+
+      Value ptrElem =
+          bitcast(ptrElems[vecStart],
+                  ptr_ty(retTy, spirv::StorageClass::CrossWorkgroup));
+
+      uint32_t alignment = nWords * width / 8;
+      Value ret = rewriter.create<spirv::LoadOp>(
+          loc, ptrElem,
+          spirv::MemoryAccessAttr::get(rewriter.getContext(),
+                                       spirv::MemoryAccess::Aligned),
+          rewriter.getI32IntegerAttr(alignment));
+      rewriter.create<mlir::cf::BranchOp>(loc, tailblock, ValueRange{ret});
+
+      rewriter.setInsertionPoint(tailblock, tailblock->begin());
+
+      ret = *tailblock->args_begin();
+      // Extract and store return values
+      SmallVector<Value> rets;
+      int elemsPerWord = width / valueElemNBits;
+      for (unsigned int ii = 0; ii < nWords; ++ii) {
+        Value curr;
+        if (retTy.isa<mlir::VectorType>()) {
+          curr = extract_val(IntegerType::get(getContext(), width), ret,
+                             rewriter.getI32ArrayAttr(ii));
+        } else {
+          curr = ret;
+        }
+        if (elemsPerWord > 1)
+          curr = bitcast(curr, mlir::VectorType::get({(int64_t)elemsPerWord},
+                                                     valueElemTy));
+        else
+          curr = bitcast(curr, valueElemTy);
+        rets.push_back(curr);
+      }
+
+      for (size_t ii = 0; ii < vec; ++ii) {
+        Value loaded;
+        if (elemsPerWord > 1)
+          loaded = extract_val(valueElemTy, rets[ii / elemsPerWord],
+                               rewriter.getI32ArrayAttr(ii % elemsPerWord));
+        else
+          loaded = rets[ii / elemsPerWord];
+        loadedVals.push_back(loaded);
+      }
+#endif
+    } // end vec
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+#if 0
+struct PrefetchOpSPIRVConversion : public ConvertTritonGPUOpToSPIRVPattern<
+                                       triton::gpu::intel::PrefetchCacheOp> {
+  using ConvertTritonGPUOpToSPIRVPattern<
+      triton::gpu::intel::PrefetchCacheOp>::ConvertTritonGPUOpToSPIRVPattern;
+
+  LogicalResult
+  matchAndRewrite(triton::gpu::intel::PrefetchCacheOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto mod = op->getParentOfType<mlir::ModuleOp>();
+    int threadsPerWarp = triton::gpu::TritonGPUDialect::getNumWarps(mod);
+
+    //    llvm::outs() << "johnlu lower prefetch:" << op << "\n";
+    auto operandTy = op.getPtr().getType();
+    if (!mlir::triton::isTensorPointerType(operandTy)) {
+#if 1
+      auto tensorTy = operandTy.cast<RankedTensorType>();
+      auto ty =
+          tensorTy.getElementType().cast<triton::PointerType>().getPointeeType();
+      //      llvm::outs() << "johnlu ptrType prefetch:" << ty << "\n";
+      auto llvmPtrTy = LLVM::LLVMPointerType::get(op.getContext(), 1);
+      //      llvm::outs() << "johnlu ptrType prefetch llvmPtrTy: " << llvmPtrTy << "\n";
+      //      llvm::outs().flush();
+      mlir::triton::intel::GenISA_Prefetch prefetchOp(&builder, llvmPtrTy, ty.getIntOrFloatBitWidth());
+
+      // original values
+      Value ptr = op.getPtr();
+      Value spirvPtr = adaptor.getPtr();
+      // Get the SPIRV values for pointers
+      auto ptrElems = getTypeConverter()->unpackLLElements(
+          loc, spirvPtr, rewriter, ptr.getType());
+
+      unsigned numElems = mlir::triton::gpu::getTotalElemsPerThread(ptr.getType());
+      //      unsigned vec = getVectorSize(ptr);
+      unsigned vec = 1;
+      for (size_t vecStart = 0; vecStart < numElems; vecStart += vec) {
+        prefetchOp(rewriter, loc, bitcast(ptrElems[vecStart], spirv::PointerType::get(i8_ty, spirv::StorageClass::CrossWorkgroup)), vec);
+      }
+#endif
+      // Safe to remove the op since it doesn't have any return value.
+      rewriter.eraseOp(op);
+
+      return success();
+    }
+
+    return failure();
+  }
+};
+#endif
+
 void populateLoadStoreOpToSPIRVPatterns(
     TritonGPUToSPIRVTypeConverter &typeConverter, mlir::MLIRContext *context,
     RewritePatternSet &patterns, int numWarps,
     ModuleAxisInfoAnalysis &axisInfoAnalysis, ModuleAllocation &allocation,
     ConvertTritonGPUOpToSPIRVPatternBase::IndexCacheInfo &indexCacheInfo,
     PatternBenefit benefit) {
+  patterns.add<PrefetchOpSPIRVConversion>(typeConverter, context,
+                                          axisInfoAnalysis, benefit);
   patterns.add<LoadOpSPIRVConversion>(typeConverter, context, axisInfoAnalysis,
                                       benefit);
   patterns.add<StoreOpSPIRVConversion>(typeConverter, context, axisInfoAnalysis,

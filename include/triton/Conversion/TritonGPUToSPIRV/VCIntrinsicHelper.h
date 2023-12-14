@@ -382,9 +382,7 @@ private:
 class GenISA_Prefetch {
 
 public:
-  explicit GenISA_Prefetch(IntrinsicBuilder *builder, mlir::Type ptrTy,
-                           int dataSize)
-      : dataSize(dataSize) {
+  explicit GenISA_Prefetch(IntrinsicBuilder *builder, mlir::Type ptrTy) {
     // get GenISA intrinsic declaration.
     SmallVector<mlir::Type *> mlirTys{&ptrTy};
     auto genISAName =
@@ -416,21 +414,20 @@ public:
   }
 
   Value operator()(ConversionPatternRewriter &rewriter, Location loc, Value ptr,
-                   int vecSize) {
+                   uint32_t byteSize) {
     auto funName = intrinsicDecl.getName();
     auto retType = intrinsicDecl.getResultTypes();
     auto funCall = rewriter.create<spirv::FunctionCallOp>(
         loc, retType, funName,
         ValueRange{ptr, i32_val(0) /*offset to the ptr*/,
-                   i32_val(dataSize) /*data size in bytes*/,
-                   i32_val(vecSize) /*element number*/,
+                   i32_val(1) /*data size in bytes*/,
+                   i32_val(byteSize) /*byte size*/,
                    i32_val(0) /*cache control*/});
     return Value();
   }
 
 private:
   spirv::FuncOp intrinsicDecl;
-  int dataSize;
 };
 
 class GenXDPAS2 : public VCIntrinsicSIMTAdaptor<GenXDPAS2> {
