@@ -11,7 +11,6 @@ import setuptools
 import torch
 import triton._C.libintel_xpu_backend_for_triton.triton as _triton  # noqa:E402
 from dataclasses import asdict, dataclass
-from triton._C.libtriton.triton import ir as triton_ir
 from triton.common.backend import (TRITON_PATH, TRITON_VERSION,  # noqa:E402
                                    BaseBackend, register_backend)
 from triton.compiler.make_launcher import make_so_cache_key  # noqa:E402
@@ -44,18 +43,6 @@ def version_key():
         with open(lib.module_finder.find_spec(lib.name).origin, "rb") as f:
             contents += [hashlib.md5(f.read()).hexdigest()]
     return '-'.join(TRITON_VERSION) + '-' + '-'.join(contents)
-
-
-def is_ws_supported(module):
-    # Override triton's `is_ws_supported` function, so that
-    # the module id is kept the same within the overall context.
-    if isinstance(module, _triton.module):
-        return False
-    else:
-        return triton_ir.is_ws_supported
-
-
-triton_ir.is_ws_supported = is_ws_supported
 
 
 def _add_external_libs(mod, libs):
@@ -526,6 +513,12 @@ class XPUBackend(BaseBackend):
         # pm.add_tritongpu_optimize_thread_locality_pass()
         pm.add_canonicalizer_pass()
         pm.run(mod)
+
+        # pm = _triton.pass_manager(mod.context)
+        # pm.enable_debug()
+        # pm.add_tritongpu_remove_layout_conversions_pass()
+        # pm.run(mod)
+
         return mod
 
     @staticmethod

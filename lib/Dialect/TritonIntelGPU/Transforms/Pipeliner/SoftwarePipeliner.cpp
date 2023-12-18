@@ -53,8 +53,8 @@ static void pipelineLoop(scf::ForOp forOp, int numStages) {
   FailureOr<scf::ForOp> newForOp =
       mlir::triton::gpu::intel::pipelineForLoop(rewriter, forOp, options);
 
-  if (succeeded(newForOp))
-    mlir::triton::gpu::intel::asyncLaunchDots(newForOp.value());
+  //  if (succeeded(newForOp))
+  //    mlir::triton::gpu::intel::asyncLaunchDots(newForOp.value());
 }
 
 namespace {
