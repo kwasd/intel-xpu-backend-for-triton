@@ -417,6 +417,12 @@ void init_triton_translation(py::module &m) {
       .def("add_tritongpu_rewrite_tensor_pointer_pass",
            [](mlir::PassManager &self, py::dict computeCapability) {
              self.addPass(mlir::createTritonGPURewriteTensorPointerPass(80));
+           })
+      .def("add_tritonintelgpu_rewrite_tensor_pointer_pass",
+           [](mlir::PassManager &self, py::dict computeCapability) {
+             auto capabilities = convert_dict(computeCapability);
+             self.addPass(mlir::createTritonIntelGPURewriteTensorPointerPass(
+                 capabilities));
            });
 
   m.def("get_shared_memory_size", [](mlir::ModuleOp mod) {

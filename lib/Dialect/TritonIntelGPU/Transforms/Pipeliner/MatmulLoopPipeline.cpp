@@ -204,12 +204,7 @@ static void createPrefetchOp(scf::ForOp &forOp, tt::LoadOp loadOp, Value ptr) {
 /// Create an async load equivalent to the given load.
 static void createPrefetchLoad(scf::ForOp &forOp, tt::LoadOp loadOp,
                                Value ptr) {
-  if (isLoadFromTensorPtr(loadOp)) {
-    //    createTMALoad(forOp, loadOp, alloc, insertIdx, extractIdx, phase);
-    //    assert(0 && "johnlu");
-  } else {
-    createPrefetchOp(forOp, loadOp, ptr);
-  }
+  createPrefetchOp(forOp, loadOp, ptr);
 }
 
 // Return the transitive use of the load which is a dot operand.
@@ -648,19 +643,19 @@ createSchedule(scf::ForOp forOp, int numStages) {
     //    }
   }
 
-  //  for (auto &opPair : stage1deps) {
-  //    llvm::outs() << "johnlu stage1deps:" << *opPair << "\n";
-  //    llvm::outs().flush();
-  //  }
+  for (auto &opPair : stage1deps) {
+    llvm::outs() << "johnlu stage1deps:" << *opPair << "\n";
+    llvm::outs().flush();
+  }
 
   DenseSet<Operation *> loadAndDeps;
   for (Operation *op : loadOps) {
     addDep(op, loadAndDeps, false, &prefetchAndDeps);
   }
-  //  for (auto &opPair : loadAndDeps) {
-  //    llvm::outs() << "johnlu loadAndDeps:" << *opPair << "\n";
-  //    llvm::outs().flush();
-  //  }
+  for (auto &opPair : loadAndDeps) {
+    llvm::outs() << "johnlu loadAndDeps:" << *opPair << "\n";
+    llvm::outs().flush();
+  }
   std::vector<std::pair<Operation *, unsigned>> schedule;
 
   // Schedule some dependencies with distance of 1 into stage 1 to reduce
@@ -683,12 +678,11 @@ createSchedule(scf::ForOp forOp, int numStages) {
            loadAndDeps.count(op) == 0;
   });
 
-  //  for (auto &opPair : schedule) {
-  //    llvm::outs() << "johnlu stage:" << opPair.second << " def:" <<
-  //    *opPair.first
-  //                 << "\n";
-  //    llvm::outs().flush();
-  //  }
+  for (auto &opPair : schedule) {
+    llvm::outs() << "johnlu stage:" << opPair.second << " def:" << *opPair.first
+                 << "\n";
+    llvm::outs().flush();
+  }
 
   return schedule;
 }

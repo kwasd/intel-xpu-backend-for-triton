@@ -488,7 +488,8 @@ class XPUBackend(BaseBackend):
         # optimize TTGIR
         pm.add_tritongpu_coalesce_pass()
         # TODO: add 2d block load/store optimize passes.
-        pm.add_tritongpu_rewrite_tensor_pointer_pass(asdict(opt))
+        # pm.add_tritongpu_rewrite_tensor_pointer_pass(asdict(opt))
+        pm.add_tritonintelgpu_rewrite_tensor_pointer_pass(asdict(opt))
         pm.add_tritongpu_remove_layout_conversions_pass()
         pm.add_triton_intel_gpu_accelerate_matmul_pass(asdict(opt))
         pm.add_tritongpu_remove_layout_conversions_pass()
@@ -496,8 +497,8 @@ class XPUBackend(BaseBackend):
             pm.add_tritongpu_optimize_epilogue_pass()
         pm.add_tritongpu_optimize_dot_operands_pass()
         pm.add_cse_pass()
-        # pm.add_triton_intel_gpu_pipe_line_pass(opt.num_stages, opt.num_warps, opt.num_ctas, asdict(opt))
-        pm.add_tritongpu_pipeline_pass(opt.num_stages, opt.num_warps, opt.num_ctas, asdict(opt))
+        pm.add_triton_intel_gpu_pipe_line_pass(opt.num_stages, opt.num_warps, opt.num_ctas, asdict(opt))
+        # pm.add_tritongpu_pipeline_pass(opt.num_stages, opt.num_warps, opt.num_ctas, asdict(opt))
         # pm.add_tritongpu_materialize_load_store_pass(opt.num_warps, capability)
         # if capability // 10 <= 8:
         #     pm.add_tritongpu_prefetch_pass()
@@ -514,10 +515,10 @@ class XPUBackend(BaseBackend):
         pm.add_canonicalizer_pass()
         pm.run(mod)
 
-        # pm = _triton.pass_manager(mod.context)
-        # pm.enable_debug()
-        # pm.add_tritongpu_remove_layout_conversions_pass()
-        # pm.run(mod)
+        pm = _triton.pass_manager(mod.context)
+        pm.enable_debug()
+        pm.add_tritongpu_remove_layout_conversions_pass()
+        pm.run(mod)
 
         return mod
 
