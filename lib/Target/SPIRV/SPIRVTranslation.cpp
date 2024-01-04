@@ -443,7 +443,9 @@ std::string
 translateTritonGPUToSPIRVIR(mlir::ModuleOp module,
                             std::map<std::string, int> computeCapability) {
   std::string spirvModule;
-  if (!getenv("ENABLE_SIMD_PATH")) {
+  auto enableSIMD = getenv("ENABLE_SIMD_PATH");
+  auto fromSpirv = enableSIMD && getenv("FROM_SPIRV");
+  if (!fromSpirv) {
     mlir::PassManager pm(module->getContext());
     mlir::registerPassManagerCLOptions();
     if (failed(applyPassManagerCLOptions(pm))) {
@@ -462,7 +464,8 @@ translateTritonGPUToSPIRVIR(mlir::ModuleOp module,
         /*printAfterOnlyOnChange=*/true,
         /*printAfterOnlyOnFailure*/ false, llvm::dbgs(), printingFlags);
 
-    pm.addPass(mlir::createConvertSCFToCFPass());
+    if (!enableSIMD)
+      pm.addPass(mlir::createConvertSCFToCFPass());
     pm.addPass(createConvertTritonGPUToSPIRVPass(std::move(computeCapability)));
     //  pm.addPass(mlir::arith::createConvertArithToSPIRVPass());
     // Canonicalize to eliminate the remaining UnrealizedConversionCastOp
@@ -486,6 +489,7 @@ translateTritonGPUToSPIRVIR(mlir::ModuleOp module,
 
     std::ifstream inFile;
     inFile.open("/home/gta/deweiwang/xpu/triton/python/gemm.spirv.mlir");
+    // inFile.open("/home/gta/deweiwang/xpu/triton/python/gemm.simple.spirv.mlir");
     std::stringstream strStream;
     strStream << inFile.rdbuf();
     std::string str = strStream.str();
