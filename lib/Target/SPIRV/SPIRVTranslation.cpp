@@ -396,7 +396,7 @@ static LogicalResult translateTritonSPIRVToSPIRVIR(ModuleOp module,
     });
   }
 
-  if (failed(spirv::serialize(spirvModules[0], binary)))
+  if (failed(spirv::serialize(spirvModules[0], binary, {true, true})))
     return failure();
 
   // Link external libraries before perform optimizations.
