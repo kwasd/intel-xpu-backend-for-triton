@@ -19,7 +19,7 @@ void init_triton_runtime(py::module &&m) {
       .value("SPIRV", SPIRV)
       .export_values();
 
-  py::enum_<mlir::triton::Target>(m, "TARGET")
+  py::enum_<mlir::triton::Target>(m, "TARGET", py::module_local())
       .value("NVVM", mlir::triton::NVVM)
       .value("ROCDL", mlir::triton::ROCDL)
       .value("GENX", mlir::triton::GENX)

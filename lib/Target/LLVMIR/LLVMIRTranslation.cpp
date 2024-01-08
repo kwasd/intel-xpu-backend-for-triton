@@ -299,7 +299,7 @@ static std::map<std::string, std::string> getExternLibs(mlir::ModuleOp module,
     static const auto runtime_path =
         (target == Target::GENX)
             ? this_library_path.parent_path().parent_path() / "third_party" /
-                  "sycl" / "lib" / "libsycl-spir64-unknown-unknown.bc"
+                  "xpu" / "lib" / "libsycl-spir64-unknown-unknown.bc"
             : this_library_path.parent_path().parent_path() / "third_party" /
                   "cuda" / "lib" / "libdevice.10.bc";
     if (fs::exists(runtime_path)) {
@@ -317,7 +317,7 @@ static std::map<std::string, std::string> getExternLibs(mlir::ModuleOp module,
                         .parent_path()
                         .parent_path()
                         .parent_path() /
-                    "python" / "triton" / "third_party" / "sycl" / "lib" /
+                    "python" / "triton" / "third_party" / "xpu" / "lib" /
                     "libsycl-spir64-unknown-unknown.bc"
               : this_file_path.parent_path()
                         .parent_path()

@@ -6,6 +6,59 @@ if(POLICY CMP0116)
   cmake_policy(SET CMP0116 OLD)
 endif()
 
+# Use the PYTHON_THIRD_PARTY_PATH var to detect whehter XPU backend is built as a plug-in
+if(PYTHON_THIRD_PARTY_PATH AND NOT XPU_BACKEND_RECURSIVE_CONFIG)
+  get_cmake_property(CACHE_VARS CACHE_VARIABLES)
+  foreach(CACHE_VAR ${CACHE_VARS})
+    get_property(CACHE_VAR_HELPSTRING CACHE ${CACHE_VAR} PROPERTY HELPSTRING)
+    get_property(CACHE_VAR_TYPE CACHE ${CACHE_VAR} PROPERTY TYPE)
+    if(CACHE_VAR_TYPE STREQUAL "UNINITIALIZED")
+      set(CACHE_VAR_TYPE)
+    else()
+      set(CACHE_VAR_TYPE :${CACHE_VAR_TYPE})
+    endif()
+
+    if(CACHE_VAR STREQUAL "TRITON_BUILD_TUTORIALS")
+      set(CMAKE_ARGS "${CMAKE_ARGS};-D${CACHE_VAR}${CACHE_VAR_TYPE}=OFF")
+    elseif(CACHE_VAR STREQUAL "TRITON_BUILD_PYTHON_MODULE")
+      # We still need the Python module.
+      set(CMAKE_ARGS "${CMAKE_ARGS};-D${CACHE_VAR}${CACHE_VAR_TYPE}=ON")
+    elseif(CACHE_VAR STREQUAL "CMAKE_LIBRARY_OUTPUT_DIRECTORY" OR
+            CACHE_VAR STREQUAL "LLVM_LIBRARY_DIR" OR
+            CACHE_VAR STREQUAL "LLVM_INCLUDE_DIRS" OR
+            CACHE_VAR STREQUAL "CMAKE_BUILD_TYPE" OR
+            CACHE_VAR STREQUAL "CMAKE_MAKE_PROGRAM" OR
+            CACHE_VAR STREQUAL "CMAKE_EXPORT_COMPILE_COMMANDS" OR
+            CACHE_VAR STREQUAL "CMAKE_VERBOSE_MAKEFILE" OR
+            CACHE_VAR STREQUAL "PYTHON_INCLUDE_DIRS" OR
+            CACHE_VAR STREQUAL "PYBIND11_INCLUDE_DIR" OR
+            CACHE_VAR STREQUAL "PYTHON_LIBRARY" OR
+            CACHE_VAR STREQUAL "GenISAIntrinsics_LIB_DIR"
+    )
+      # Keep ; semantic by replacing it with \\;
+      string(REPLACE ";" "\\;" CACHE_VAR_VAL "${${CACHE_VAR}}")
+      set(CMAKE_ARGS
+      "${CMAKE_ARGS};-D${CACHE_VAR}${CACHE_VAR_TYPE}=${CACHE_VAR_VAL}")
+    endif()
+  endforeach()
+
+  # re-config the CMake as a root cmake file
+  execute_process(COMMAND ${CMAKE_COMMAND} ${CMAKE_ARGS} -DXPU_BACKEND_RECURSIVE_CONFIG=ON -DPYTHON_THIRD_PARTY_PATH=${PYTHON_THIRD_PARTY_PATH}
+                  -G Ninja -S
+                  ${CMAKE_CURRENT_SOURCE_DIR} -B ${CMAKE_CURRENT_BINARY_DIR}/triton
+                  COMMAND_ECHO STDOUT
+                  ECHO_OUTPUT_VARIABLE)
+
+  add_custom_target(intel_xpu_backend_for_triton ALL
+                    COMMAND ${CMAKE_COMMAND} --build . -j --config ${CMAKE_BUILD_TYPE} --target
+                    triton
+                    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/triton
+                    COMMENT "Building intel_xpu_backend_for_triton"
+                    VERBATIM USES_TERMINAL)
+
+  return()
+endif()
+
 include(ExternalProject)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -160,15 +213,27 @@ set(GenISAIntrinsics_LIBRARY
 )
 message(STATUS "GenISAIntrinsics_LDFLAGS: ${GenISAIntrinsics_LDFLAGS}")
 
+MESSAGE(STATUS "johnlu cmake TRITON_BUILD_PYTHON_MODULE ${TRITON_BUILD_PYTHON_MODULE}")
 # Python module
 if(TRITON_BUILD_PYTHON_MODULE)
   message(STATUS "Adding Python module")
   set(PYTHON_SRC_PATH ${CMAKE_CURRENT_SOURCE_DIR}/python/src)
-  set(PYTHON_SRC ${PYTHON_SRC_PATH}/main.cc
-                ${PYTHON_SRC_PATH}/triton.cc
-                ${PYTHON_SRC_PATH}/translation.cc
-                ${PYTHON_SRC_PATH}/runtime.cc
-                ${PYTHON_SRC_PATH}/interpreter.cc)
+
+  if (XPU_BACKEND_RECURSIVE_CONFIG)
+    add_subdirectory(python/triton/third_party/xpu)
+    set(PYTHON_SRC ${PYTHON_SRC}
+            ${PYTHON_SRC_PATH}/triton.cc
+            ${PYTHON_SRC_PATH}/translation.cc
+            ${PYTHON_SRC_PATH}/runtime.cc
+            ${PYTHON_SRC_PATH}/interpreter.cc)
+  else()
+    set(PYTHON_SRC ${PYTHON_SRC_PATH}/main.cc
+            ${PYTHON_SRC_PATH}/triton.cc
+            ${PYTHON_SRC_PATH}/translation.cc
+            ${PYTHON_SRC_PATH}/runtime.cc
+            ${PYTHON_SRC_PATH}/interpreter.cc)
+  endif()
+
   include_directories("." ${PYTHON_SRC_PATH})
 
   if(PYTHON_INCLUDE_DIRS)
@@ -230,6 +295,11 @@ endif()
 
 if(TRITON_BUILD_PYTHON_MODULE)
   add_library(triton SHARED ${PYTHON_SRC})
+
+  if (XPU_BACKEND_RECURSIVE_CONFIG)
+    set_target_properties(triton PROPERTIES OUTPUT_NAME "intel_xpu_backend_for_triton")
+  endif()
+
   set(TRITON_LIBRARIES
     TritonAnalysis
     TritonTransforms
@@ -256,22 +326,20 @@ if(TRITON_BUILD_PYTHON_MODULE)
   )
 
   if(WIN32)
-    target_link_libraries(triton PRIVATE ${LLVM_LIBRARIES} ${LLVM_SPIRV_LIBRARY}
-      ${GenISAIntrinsics_LIBRARY}
+    target_link_libraries(triton PRIVATE ${LLVM_LIBRARIES}
       ${CMAKE_DL_LIBS} ${TRITON_LIBRARIES}
     )
   elseif(APPLE)
-    target_link_libraries(triton ${LLVM_LIBRARIES} ${LLVM_SPIRV_LIBRARY}
-      ${GenISAIntrinsics_LIBRARY} z
+    target_link_libraries(triton ${LLVM_LIBRARIES} z
       ${TRITON_LIBRARIES}
     )
   else()
     target_link_libraries(triton ${LLVM_LIBRARIES} z
-      ${TRITON_LIBRARIES} ${LLVM_SPIRV_LIBRARY} ${GenISAIntrinsics_LIBRARY}
+      ${TRITON_LIBRARIES}
     )
   endif()
 
-  target_link_options(triton PRIVATE ${LLVM_LDFLAGS} ${LLVM_SPIRV_LDFLAGS} ${GenISAIntrinsics_LDFLAGS})
+  target_link_options(triton PRIVATE ${LLVM_LDFLAGS} ${GenISAIntrinsics_LDFLAGS})
 endif()
 
 if(UNIX AND NOT APPLE)

@@ -30,7 +30,8 @@ PYBIND11_MAKE_OPAQUE(mlir::triton::gpu::TMAMetadataTy);
 void init_triton_translation(py::module &&m) {
   using ret = py::return_value_policy;
 
-  py::class_<mlir::triton::nvidia_gpu::ClusterInfo>(m, "ClusterInfo")
+  py::class_<mlir::triton::nvidia_gpu::ClusterInfo>(m, "ClusterInfo",
+                                                    py::module_local())
       .def(py::init<>())
       .def_readwrite("clusterDimX",
                      &mlir::triton::nvidia_gpu::ClusterInfo::clusterDimX)
@@ -45,7 +46,7 @@ void init_triton_translation(py::module &&m) {
         return oss.str();
       });
 
-  py::class_<mlir::triton::gpu::TMAInfo>(m, "TMAInfo")
+  py::class_<mlir::triton::gpu::TMAInfo>(m, "TMAInfo", py::module_local())
       .def(py::init<>())
       .def_readwrite("tensorDataType",
                      &mlir::triton::gpu::TMAInfo::tensorDataType)
@@ -70,6 +71,12 @@ void init_triton_translation(py::module &&m) {
   m.def("get_shared_memory_size", [](mlir::ModuleOp mod) {
     auto shared = mod->getAttrOfType<mlir::IntegerAttr>("triton_gpu.shared");
     return shared.getInt();
+  });
+  m.def("get_threads_per_warp", [](mlir::ModuleOp mod) {
+    auto threads_per_warp =
+        mod->getAttrOfType<mlir::IntegerAttr>("triton_gpu.threads-per-warp");
+    assert(threads_per_warp);
+    return threads_per_warp.getInt();
   });
   m.def("get_num_warps", [](mlir::ModuleOp mod) {
     auto shared = mod->getAttrOfType<mlir::IntegerAttr>("triton_gpu.num-warps");
