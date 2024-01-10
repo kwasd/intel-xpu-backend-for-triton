@@ -148,6 +148,8 @@ jobs:
           python3 -m pytest -n auto --verbose --device xpu --ignore=test_line_info.py --ignore=test_subprocess.py
           # run test_line_info.py separately with TRITON_DISABLE_LINE_INFO=0
           TRITON_DISABLE_LINE_INFO=0 python3 -m pytest -n auto test_line_info.py
+          cd ../runtime
+          python3 -m pytest -n auto --verbose
 
       - name: Run assert/print tests
         run: |
